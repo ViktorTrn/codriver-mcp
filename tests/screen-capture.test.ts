@@ -16,6 +16,7 @@ const mockSharpInstance = {
   extract: vi.fn().mockReturnThis(),
   resize: vi.fn().mockReturnThis(),
   png: vi.fn().mockReturnThis(),
+  jpeg: vi.fn().mockReturnThis(),
   toBuffer: vi.fn(async () =>
     Buffer.from(
       'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
@@ -39,6 +40,7 @@ describe('ScreenCapture', () => {
     mockSharpInstance.extract.mockReturnThis();
     mockSharpInstance.resize.mockReturnThis();
     mockSharpInstance.png.mockReturnThis();
+    mockSharpInstance.jpeg.mockReturnThis();
     capture = new ScreenCapture();
   });
 
@@ -80,5 +82,21 @@ describe('ScreenCapture', () => {
     await capture.capture({ scale: 1.0 });
 
     expect(mockSharpInstance.resize).not.toHaveBeenCalled();
+  });
+
+  it('should output JPEG when format is jpeg', async () => {
+    const result = await capture.capture({ format: 'jpeg', quality: 60 });
+
+    expect(mockSharpInstance.jpeg).toHaveBeenCalledWith({ quality: 60 });
+    expect(mockSharpInstance.png).not.toHaveBeenCalled();
+    expect(result.mimeType).toBe('image/jpeg');
+  });
+
+  it('should default to PNG format', async () => {
+    const result = await capture.capture();
+
+    expect(mockSharpInstance.png).toHaveBeenCalled();
+    expect(mockSharpInstance.jpeg).not.toHaveBeenCalled();
+    expect(result.mimeType).toBe('image/png');
   });
 });

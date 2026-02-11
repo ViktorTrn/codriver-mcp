@@ -13,7 +13,7 @@ export class ScreenCapture {
    * Uses screenshot-desktop for capture and sharp for processing.
    */
   async capture(options: ScreenshotOptions = {}): Promise<ScreenshotResult> {
-    const { scale = 1.0, region } = options;
+    const { scale = 1.0, region, format = 'png', quality = 80 } = options;
 
     // Capture full desktop as PNG buffer
     const buffer = await screenshot({ format: 'png' }) as Buffer;
@@ -40,12 +40,22 @@ export class ScreenCapture {
       height = newHeight;
     }
 
-    const outputBuffer = await image.png().toBuffer();
+    // Output format: PNG (lossless) or JPEG (compressed, smaller for remote)
+    let outputBuffer: Buffer;
+    let mimeType: string;
+    if (format === 'jpeg') {
+      outputBuffer = await image.jpeg({ quality }).toBuffer();
+      mimeType = 'image/jpeg';
+    } else {
+      outputBuffer = await image.png().toBuffer();
+      mimeType = 'image/png';
+    }
+
     const data = outputBuffer.toString('base64');
 
     return {
       data,
-      mimeType: 'image/png',
+      mimeType,
       width,
       height,
     };

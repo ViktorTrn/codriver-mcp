@@ -15,7 +15,7 @@ export function createServer(): McpServer {
   const server = new McpServer(
     {
       name: 'codriver-mcp',
-      version: '0.2.0',
+      version: '0.3.0',
     },
     {
       capabilities: {
@@ -44,12 +44,24 @@ export function createServer(): McpServer {
           .max(1.0)
           .optional()
           .describe('Scale factor 0.1-1.0 to reduce image size. Default 1.0.'),
+        format: z
+          .enum(['png', 'jpeg'])
+          .optional()
+          .describe('Image format. JPEG is smaller for remote usage. Default: png.'),
+        quality: z
+          .number()
+          .min(1)
+          .max(100)
+          .optional()
+          .describe('JPEG quality 1-100. Only used with format=jpeg. Default: 80.'),
       },
     },
-    async ({ windowTitle, scale }) => {
+    async ({ windowTitle, scale, format, quality }) => {
       const result = await screenCapture.capture({
         windowTitle,
         scale: scale ?? 1.0,
+        format: format ?? 'png',
+        quality: quality ?? 80,
       });
       return {
         content: [
