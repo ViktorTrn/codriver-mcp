@@ -12,7 +12,7 @@
  *   npx codriver-mcp --help   # Show help
  */
 
-import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { createServer } from './server.js';
 
 async function main(): Promise<void> {

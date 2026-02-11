@@ -3,8 +3,8 @@
  * Registers all desktop automation tools with the MCP server
  */
 
-import { McpServer } from '@modelcontextprotocol/server';
-import * as z from 'zod';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { z } from 'zod';
 
 import { screenCapture } from './modules/screen-capture.js';
 import { inputController } from './modules/input-controller.js';
@@ -32,7 +32,7 @@ export function createServer(): McpServer {
       description:
         'Take a screenshot of the entire desktop or a specific window. ' +
         'Returns the image as base64 PNG. Use windowTitle to capture a specific window.',
-      inputSchema: z.object({
+      inputSchema: {
         windowTitle: z
           .string()
           .optional()
@@ -43,7 +43,7 @@ export function createServer(): McpServer {
           .max(1.0)
           .optional()
           .describe('Scale factor 0.1-1.0 to reduce image size. Default 1.0.'),
-      }),
+      },
     },
     async ({ windowTitle, scale }) => {
       const result = await screenCapture.capture({
@@ -73,7 +73,7 @@ export function createServer(): McpServer {
       description:
         'Click at a specific coordinate on the screen. ' +
         'Use desktop_screenshot first to identify the target location.',
-      inputSchema: z.object({
+      inputSchema: {
         x: z.number().describe('X coordinate (pixels from left)'),
         y: z.number().describe('Y coordinate (pixels from top)'),
         button: z
@@ -84,7 +84,10 @@ export function createServer(): McpServer {
           .boolean()
           .optional()
           .describe('Double-click instead of single click'),
-      }),
+      },
+      annotations: {
+        destructiveHint: true,
+      },
     },
     async ({ x, y, button, doubleClick }) => {
       await inputController.click({
@@ -110,13 +113,16 @@ export function createServer(): McpServer {
       description:
         'Type text at the current cursor position. ' +
         'Use desktop_click first to focus the target input field.',
-      inputSchema: z.object({
+      inputSchema: {
         text: z.string().describe('Text to type'),
         slowly: z
           .boolean()
           .optional()
           .describe('Type one character at a time (for apps with key handlers)'),
-      }),
+      },
+      annotations: {
+        destructiveHint: true,
+      },
     },
     async ({ text, slowly }) => {
       await inputController.type({ text, slowly: slowly ?? false });
@@ -138,7 +144,7 @@ export function createServer(): McpServer {
       description:
         'Press a key or key combination. ' +
         'Examples: "enter", "ctrl+c", "ctrl+shift+s", "alt+tab", "f5"',
-      inputSchema: z.object({
+      inputSchema: {
         key: z
           .string()
           .describe(
@@ -150,7 +156,10 @@ export function createServer(): McpServer {
           .max(100)
           .optional()
           .describe('Number of times to press. Default: 1'),
-      }),
+      },
+      annotations: {
+        destructiveHint: true,
+      },
     },
     async ({ key, repeat }) => {
       await inputController.key({ key, repeat: repeat ?? 1 });
@@ -170,7 +179,7 @@ export function createServer(): McpServer {
     {
       title: 'Desktop Scroll',
       description: 'Scroll at a specific position on the screen.',
-      inputSchema: z.object({
+      inputSchema: {
         x: z.number().describe('X coordinate'),
         y: z.number().describe('Y coordinate'),
         direction: z.enum(['up', 'down', 'left', 'right']).describe('Scroll direction'),
@@ -180,7 +189,7 @@ export function createServer(): McpServer {
           .max(20)
           .optional()
           .describe('Number of scroll ticks. Default: 3'),
-      }),
+      },
     },
     async ({ x, y, direction, amount }) => {
       await inputController.scroll({
@@ -206,7 +215,7 @@ export function createServer(): McpServer {
       description:
         'List all open windows, or focus a specific window by title. ' +
         'Use action "list" to see windows, "focus" to bring a window to front.',
-      inputSchema: z.object({
+      inputSchema: {
         action: z
           .enum(['list', 'focus'])
           .describe('"list" to get all windows, "focus" to activate a window'),
@@ -214,7 +223,10 @@ export function createServer(): McpServer {
           .string()
           .optional()
           .describe('Window title to focus (substring match). Required for "focus" action.'),
-      }),
+      },
+      annotations: {
+        readOnlyHint: false,
+      },
     },
     async ({ action, title }) => {
       if (action === 'list') {
@@ -229,7 +241,7 @@ export function createServer(): McpServer {
           content: [
             {
               type: 'text' as const,
-              text: `Open Windows:\n${text}`,
+              text: windows.length > 0 ? `Open Windows:\n${text}` : 'No windows found.',
             },
           ],
         };

@@ -6,7 +6,7 @@
 
 **Analogy:** What "Claude in Chrome" is for the browser, CoDriver is for the entire desktop.
 
-**Current Status:** Phase 1 - MVP Development
+**Current Status:** Phase 1 - MVP Complete (macOS)
 
 ## Architecture
 
@@ -19,8 +19,8 @@ CoDriver MCP Server (Windows/Mac/Linux)
   |
   +-- ScreenCapture    - Desktop/Window screenshots (screenshot-desktop + sharp)
   +-- AccessibilityTree - UI element tree (Windows UIA / macOS AX / AT-SPI)
-  +-- InputController   - Mouse + Keyboard injection (nut-js)
-  +-- WindowManager     - Window list, focus, resize (nut-js)
+  +-- InputController   - Mouse + Keyboard injection (@jitsi/robotjs)
+  +-- WindowManager     - Window list, focus, resize (AppleScript/osascript)
   +-- OCR Engine        - Fallback text recognition (tesseract.js)
 ```
 
@@ -29,10 +29,11 @@ CoDriver MCP Server (Windows/Mac/Linux)
 | Layer | Technology |
 |-------|------------|
 | Runtime | Node.js 20 LTS, TypeScript 5.7+ |
-| MCP SDK | @modelcontextprotocol/server v2 |
+| MCP SDK | @modelcontextprotocol/sdk v1.26 |
 | Screenshots | screenshot-desktop + sharp |
-| Input Control | @nut-tree/nut-js v4 |
-| Accessibility | Platform-native (Windows UIA, macOS AX) |
+| Input Control | @jitsi/robotjs v0.6.21 |
+| Window Mgmt | AppleScript/osascript (macOS), platform-native |
+| Accessibility | Platform-native (Windows UIA, macOS AX) - Phase 2 |
 | OCR Fallback | tesseract.js |
 | Testing | vitest |
 | Transport | stdio (local) / WebSocket (remote) |
@@ -41,31 +42,23 @@ CoDriver MCP Server (Windows/Mac/Linux)
 
 ```
 src/
-  index.ts              # Entry point (stdio transport)
-  server.ts             # McpServer setup + tool registration
-  tools/                # MCP Tool implementations
-    screenshot.ts       # desktop_screenshot
-    click.ts            # desktop_click
-    type.ts             # desktop_type
-    key.ts              # desktop_key
-    scroll.ts           # desktop_scroll
-    windows.ts          # desktop_windows
-    read-ui.ts          # desktop_read_ui (Phase 2)
-    find.ts             # desktop_find (Phase 2)
-    ocr.ts              # desktop_ocr (Phase 4)
-    launch.ts           # desktop_launch (Phase 4)
-  modules/              # Core engine modules
-    screen-capture.ts   # Screenshot engine
-    input-controller.ts # Mouse + keyboard abstraction
-    window-manager.ts   # Window enumeration + control
-    accessibility.ts    # UI Automation bridge (Phase 2)
-    ocr-engine.ts       # Tesseract wrapper (Phase 4)
-  transport/            # MCP transport layers
-    stdio.ts            # Local stdio transport
-    websocket.ts        # Remote WebSocket transport (Phase 3)
+  index.ts                    # Entry point (stdio transport)
+  server.ts                   # McpServer setup + tool registration (registerTool API)
+  modules/                    # Core engine modules
+    screen-capture.ts         # Screenshot engine (screenshot-desktop + sharp)
+    input-controller.ts       # Mouse + keyboard (@jitsi/robotjs)
+    window-manager.ts         # Window enumeration + control (AppleScript on macOS)
+    accessibility.ts          # UI Automation bridge (Phase 2)
+    ocr-engine.ts             # Tesseract wrapper (Phase 4)
+  transport/                  # MCP transport layers
+    websocket.ts              # Remote WebSocket transport (Phase 3)
   types/
-    index.ts            # Shared type definitions
-tests/                  # Test files (vitest)
+    index.ts                  # Shared type definitions
+    screenshot-desktop.d.ts   # Type declarations for screenshot-desktop
+tests/                        # Test files (vitest)
+  screen-capture.test.ts      # ScreenCapture tests
+  input-controller.test.ts    # InputController tests
+  window-manager.test.ts      # WindowManager tests
 ```
 
 ## MCP Tools Reference
@@ -108,7 +101,7 @@ tests/                  # Test files (vitest)
 ### Testing
 - vitest for unit tests
 - Test each tool + module independently
-- Mock nut-js/screenshot-desktop in tests
+- Mock robotjs/screenshot-desktop in tests
 
 ### MCP SDK Patterns
 - Use `server.registerTool()` with Zod schemas
