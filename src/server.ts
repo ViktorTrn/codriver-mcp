@@ -9,12 +9,13 @@ import { z } from 'zod';
 import { screenCapture } from './modules/screen-capture.js';
 import { inputController } from './modules/input-controller.js';
 import { windowManager } from './modules/window-manager.js';
+import { accessibilityReader } from './modules/accessibility.js';
 
 export function createServer(): McpServer {
   const server = new McpServer(
     {
       name: 'codriver-mcp',
-      version: '0.1.0',
+      version: '0.2.0',
     },
     {
       capabilities: {
@@ -71,11 +72,15 @@ export function createServer(): McpServer {
     {
       title: 'Desktop Click',
       description:
-        'Click at a specific coordinate on the screen. ' +
-        'Use desktop_screenshot first to identify the target location.',
+        'Click at a specific coordinate or on a UI element by ref. ' +
+        'Provide either (x, y) coordinates or a ref from desktop_read_ui/desktop_find.',
       inputSchema: {
-        x: z.number().describe('X coordinate (pixels from left)'),
-        y: z.number().describe('Y coordinate (pixels from top)'),
+        x: z.number().optional().describe('X coordinate (pixels from left). Required if no ref.'),
+        y: z.number().optional().describe('Y coordinate (pixels from top). Required if no ref.'),
+        ref: z
+          .string()
+          .optional()
+          .describe('Element reference from desktop_read_ui (e.g. "ref_1"). Alternative to x/y.'),
         button: z
           .enum(['left', 'right', 'middle'])
           .optional()
@@ -89,17 +94,44 @@ export function createServer(): McpServer {
         destructiveHint: true,
       },
     },
-    async ({ x, y, button, doubleClick }) => {
+    async ({ x, y, ref, button, doubleClick }) => {
+      let clickX: number;
+      let clickY: number;
+      let targetDesc: string;
+
+      if (ref) {
+        const center = accessibilityReader.getElementCenter(ref);
+        if (!center) {
+          return {
+            content: [{ type: 'text' as const, text: `Error: Element "${ref}" not found. Run desktop_read_ui first.` }],
+            isError: true,
+          };
+        }
+        [clickX, clickY] = center;
+        const el = accessibilityReader.getElementByRef(ref);
+        targetDesc = `${ref} (${el?.role} "${el?.name}") at (${clickX}, ${clickY})`;
+      } else if (x != null && y != null) {
+        clickX = x;
+        clickY = y;
+        targetDesc = `(${x}, ${y})`;
+      } else {
+        return {
+          content: [{ type: 'text' as const, text: 'Error: Provide either (x, y) coordinates or a ref.' }],
+          isError: true,
+        };
+      }
+
       await inputController.click({
-        coordinate: [x, y],
+        coordinate: [clickX, clickY],
         button: button ?? 'left',
         doubleClick: doubleClick ?? false,
       });
+
       return {
         content: [
           {
             type: 'text' as const,
-            text: `Clicked ${button ?? 'left'} at (${x}, ${y})${doubleClick ? ' (double)' : ''}`,
+            text: `Clicked ${button ?? 'left'} at ${targetDesc}${doubleClick ? ' (double)' : ''}`,
           },
         ],
       };
@@ -111,10 +143,14 @@ export function createServer(): McpServer {
     {
       title: 'Desktop Type',
       description:
-        'Type text at the current cursor position. ' +
-        'Use desktop_click first to focus the target input field.',
+        'Type text at the current cursor position or into a specific UI element. ' +
+        'Provide ref to first click the element, then type.',
       inputSchema: {
         text: z.string().describe('Text to type'),
+        ref: z
+          .string()
+          .optional()
+          .describe('Element reference to click first before typing (e.g. "ref_3").'),
         slowly: z
           .boolean()
           .optional()
@@ -124,13 +160,29 @@ export function createServer(): McpServer {
         destructiveHint: true,
       },
     },
-    async ({ text, slowly }) => {
+    async ({ text, ref, slowly }) => {
+      // If ref provided, click the element first to focus it
+      if (ref) {
+        const center = accessibilityReader.getElementCenter(ref);
+        if (!center) {
+          return {
+            content: [{ type: 'text' as const, text: `Error: Element "${ref}" not found. Run desktop_read_ui first.` }],
+            isError: true,
+          };
+        }
+        await inputController.click({ coordinate: center });
+      }
+
       await inputController.type({ text, slowly: slowly ?? false });
+
+      const truncated = text.length > 50 ? text.slice(0, 50) + '...' : text;
       return {
         content: [
           {
             type: 'text' as const,
-            text: `Typed: "${text.length > 50 ? text.slice(0, 50) + '...' : text}"`,
+            text: ref
+              ? `Clicked ${ref} and typed: "${truncated}"`
+              : `Typed: "${truncated}"`,
           },
         ],
       };
@@ -271,5 +323,132 @@ export function createServer(): McpServer {
     }
   );
 
+  // === Phase 2: Accessibility Tools ===
+
+  server.registerTool(
+    'desktop_read_ui',
+    {
+      title: 'Desktop Read UI',
+      description:
+        'Read the accessibility tree of the frontmost window or a specific app. ' +
+        'Returns UI elements with ref IDs that can be used with desktop_click and desktop_type. ' +
+        'Use filter "interactive" to show only buttons, text fields, etc.',
+      inputSchema: {
+        windowTitle: z
+          .string()
+          .optional()
+          .describe('App/process name to read (substring match). Omit for frontmost app.'),
+        depth: z
+          .number()
+          .min(1)
+          .max(20)
+          .optional()
+          .describe('Maximum tree depth. Default: 10.'),
+        filter: z
+          .enum(['interactive', 'all'])
+          .optional()
+          .describe('"interactive" for buttons/inputs only, "all" for everything. Default: all.'),
+      },
+      annotations: {
+        readOnlyHint: true,
+      },
+    },
+    async ({ windowTitle, depth, filter }) => {
+      const elements = await accessibilityReader.readUI({
+        windowTitle,
+        depth: depth ?? 10,
+        filter: filter ?? 'all',
+      });
+
+      const tree = accessibilityReader.formatTree(elements);
+      const count = countElements(elements);
+
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: tree
+              ? `UI Tree (${count} elements):\n${tree}`
+              : 'No UI elements found. Is the app focused? Are accessibility permissions granted?',
+          },
+        ],
+      };
+    }
+  );
+
+  server.registerTool(
+    'desktop_find',
+    {
+      title: 'Desktop Find',
+      description:
+        'Find UI elements by name, role, or value. Returns matching elements with ref IDs. ' +
+        'Searches the accessibility tree of the frontmost window. ' +
+        'Use desktop_read_ui first to populate the tree, or this tool will read it automatically.',
+      inputSchema: {
+        query: z
+          .string()
+          .describe('Search query (matches element name, role, or value). E.g. "Save", "button", "search".'),
+        windowTitle: z
+          .string()
+          .optional()
+          .describe('App/process name to search (substring match). Omit for frontmost app.'),
+      },
+      annotations: {
+        readOnlyHint: true,
+      },
+    },
+    async ({ query, windowTitle }) => {
+      // Always read fresh tree for find
+      const elements = await accessibilityReader.readUI({
+        windowTitle,
+        depth: 10,
+        filter: 'all',
+      });
+
+      const matches = accessibilityReader.findElements(elements, query);
+
+      if (matches.length === 0) {
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: `No elements found matching "${query}".`,
+            },
+          ],
+        };
+      }
+
+      const lines = matches.map((el) => {
+        const parts = [`[${el.ref}]`, el.role, `"${el.name}"`];
+        if (el.value) parts.push(`value="${el.value}"`);
+        if (el.enabled === false) parts.push('(disabled)');
+        const [bx, by, bw, bh] = el.bounds;
+        parts.push(`at (${bx},${by}) ${bw}x${bh}`);
+        return parts.join(' ');
+      });
+
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: `Found ${matches.length} element(s) matching "${query}":\n${lines.join('\n')}`,
+          },
+        ],
+      };
+    }
+  );
+
   return server;
+}
+
+/** Count total elements in a tree */
+function countElements(elements: { children?: { children?: unknown[] }[] }[]): number {
+  let count = 0;
+  for (const el of elements) {
+    count++;
+    if (el.children) {
+      count += countElements(el.children as typeof elements);
+    }
+  }
+  return count;
 }

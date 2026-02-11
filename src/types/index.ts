@@ -69,12 +69,43 @@ export interface ScrollOptions {
   amount?: number;
 }
 
-/** UI Element reference (Phase 2) */
+/** UI Element from accessibility tree */
 export interface UIElement {
   ref: string;
   role: string;
   name: string;
+  description?: string;
   value?: string;
+  enabled?: boolean;
   bounds: Region;
   children?: UIElement[];
+}
+
+/** Options for reading the accessibility tree */
+export interface ReadUIOptions {
+  windowTitle?: string;
+  depth?: number;
+  filter?: 'interactive' | 'all';
+}
+
+/** Click options with optional ref */
+export interface ClickWithRefOptions extends ClickOptions {
+  ref?: string;
+}
+
+/** Type options with optional ref */
+export interface TypeWithRefOptions extends TypeOptions {
+  ref?: string;
+}
+
+/** Raw JXA element before ref assignment */
+export interface RawJXAElement {
+  role: string | null;
+  title: string | null;
+  description: string | null;
+  value: string | null;
+  enabled: boolean | null;
+  position: [number, number] | null;
+  size: [number, number] | null;
+  children: RawJXAElement[];
 }
