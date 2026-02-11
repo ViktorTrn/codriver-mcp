@@ -120,7 +120,7 @@ Remote Configuration (HTTP transport):
   }
 
   if (args.version) {
-    console.log('codriver-mcp v0.3.0');
+    console.log('codriver-mcp v0.4.0');
     process.exit(0);
   }
 

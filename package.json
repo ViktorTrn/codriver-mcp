@@ -1,12 +1,16 @@
 {
   "name": "codriver-mcp",
-  "version": "0.1.0",
-  "description": "CoDriver - AI-powered Desktop Automation via MCP. Lets Claude control any desktop application.",
+  "version": "0.4.0",
+  "description": "AI-powered Desktop Automation via MCP. Lets Claude control any desktop application through screenshots, accessibility trees, OCR, and input injection.",
   "author": "Viktor Trncik <viktor@ibt-freiburg.de>",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/ViktorTrn/codriver-mcp.git"
+  },
+  "homepage": "https://github.com/ViktorTrn/codriver-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/ViktorTrn/codriver-mcp/issues"
   },
   "type": "module",
   "main": "dist/index.js",
@@ -14,6 +18,11 @@
   "bin": {
     "codriver-mcp": "dist/index.js"
   },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "tsx watch src/index.ts",
@@ -22,7 +31,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run clean && npm run build && npm test"
   },
   "dependencies": {
     "@jitsi/robotjs": "^0.6.21",
@@ -44,12 +54,21 @@
   "engines": {
     "node": ">=20.0.0"
   },
+  "os": [
+    "darwin"
+  ],
   "keywords": [
     "mcp",
     "claude",
     "desktop-automation",
     "ui-automation",
     "accessibility",
-    "model-context-protocol"
+    "model-context-protocol",
+    "screen-capture",
+    "ocr",
+    "macos",
+    "robotjs",
+    "ai-agent",
+    "anthropic"
   ]
 }
