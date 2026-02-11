@@ -1,0 +1,52 @@
+{
+  "name": "codriver-mcp",
+  "version": "0.1.0",
+  "description": "CoDriver - AI-powered Desktop Automation via MCP. Lets Claude control any desktop application.",
+  "author": "Viktor Trncik <viktor@ibt-freiburg.de>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ViktorTrn/codriver-mcp.git"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "codriver-mcp": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "lint": "eslint src/",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "^2.0.0",
+    "@nut-tree/nut-js": "^4.2.0",
+    "screenshot-desktop": "^1.15.0",
+    "sharp": "^0.33.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "eslint": "^9.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^2.0.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "keywords": [
+    "mcp",
+    "claude",
+    "desktop-automation",
+    "ui-automation",
+    "accessibility",
+    "model-context-protocol"
+  ]
+}
