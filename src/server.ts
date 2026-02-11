@@ -10,12 +10,14 @@ import { screenCapture } from './modules/screen-capture.js';
 import { inputController } from './modules/input-controller.js';
 import { windowManager } from './modules/window-manager.js';
 import { accessibilityReader } from './modules/accessibility.js';
+import { appLauncher } from './modules/app-launcher.js';
+import { ocrEngine } from './modules/ocr-engine.js';
 
 export function createServer(): McpServer {
   const server = new McpServer(
     {
       name: 'codriver-mcp',
-      version: '0.3.0',
+      version: '0.4.0',
     },
     {
       capabilities: {
@@ -54,14 +56,19 @@ export function createServer(): McpServer {
           .max(100)
           .optional()
           .describe('JPEG quality 1-100. Only used with format=jpeg. Default: 80.'),
+        screen: z
+          .number()
+          .optional()
+          .describe('Display/monitor ID to capture. Use desktop_displays to list available monitors.'),
       },
     },
-    async ({ windowTitle, scale, format, quality }) => {
+    async ({ windowTitle, scale, format, quality, screen }) => {
       const result = await screenCapture.capture({
         windowTitle,
         scale: scale ?? 1.0,
         format: format ?? 'png',
         quality: quality ?? 80,
+        screen,
       });
       return {
         content: [
@@ -446,6 +453,164 @@ export function createServer(): McpServer {
             text: `Found ${matches.length} element(s) matching "${query}":\n${lines.join('\n')}`,
           },
         ],
+      };
+    }
+  );
+
+  // === Phase 4: Polish Tools ===
+
+  server.registerTool(
+    'desktop_drag',
+    {
+      title: 'Desktop Drag',
+      description:
+        'Drag from one position to another. Supports coordinate-based and ref-based start/end. ' +
+        'Useful for drag & drop, resizing, and moving elements.',
+      inputSchema: {
+        startX: z.number().optional().describe('Start X coordinate. Required if no startRef.'),
+        startY: z.number().optional().describe('Start Y coordinate. Required if no startRef.'),
+        endX: z.number().optional().describe('End X coordinate. Required if no endRef.'),
+        endY: z.number().optional().describe('End Y coordinate. Required if no endRef.'),
+        startRef: z.string().optional().describe('Start element ref (alternative to startX/startY).'),
+        endRef: z.string().optional().describe('End element ref (alternative to endX/endY).'),
+      },
+      annotations: {
+        destructiveHint: true,
+      },
+    },
+    async ({ startX, startY, endX, endY, startRef, endRef }) => {
+      let sx: number, sy: number, ex: number, ey: number;
+
+      // Resolve start position
+      if (startRef) {
+        const center = accessibilityReader.getElementCenter(startRef);
+        if (!center) {
+          return { content: [{ type: 'text' as const, text: `Error: Start element "${startRef}" not found.` }], isError: true };
+        }
+        [sx, sy] = center;
+      } else if (startX != null && startY != null) {
+        sx = startX; sy = startY;
+      } else {
+        return { content: [{ type: 'text' as const, text: 'Error: Provide start coordinates (startX/startY) or startRef.' }], isError: true };
+      }
+
+      // Resolve end position
+      if (endRef) {
+        const center = accessibilityReader.getElementCenter(endRef);
+        if (!center) {
+          return { content: [{ type: 'text' as const, text: `Error: End element "${endRef}" not found.` }], isError: true };
+        }
+        [ex, ey] = center;
+      } else if (endX != null && endY != null) {
+        ex = endX; ey = endY;
+      } else {
+        return { content: [{ type: 'text' as const, text: 'Error: Provide end coordinates (endX/endY) or endRef.' }], isError: true };
+      }
+
+      await inputController.drag({ startCoordinate: [sx, sy], endCoordinate: [ex, ey] });
+
+      return {
+        content: [{
+          type: 'text' as const,
+          text: `Dragged from (${sx},${sy}) to (${ex},${ey})`,
+        }],
+      };
+    }
+  );
+
+  server.registerTool(
+    'desktop_launch',
+    {
+      title: 'Desktop Launch',
+      description:
+        'Launch or quit a desktop application by name. ' +
+        'Use action "launch" to open an app, "quit" to close it, "is_running" to check status.',
+      inputSchema: {
+        action: z
+          .enum(['launch', 'quit', 'is_running'])
+          .describe('"launch" to open app, "quit" to close, "is_running" to check status'),
+        appName: z.string().describe('Application name (e.g. "Safari", "Finder", "Visual Studio Code")'),
+      },
+      annotations: {
+        destructiveHint: true,
+      },
+    },
+    async ({ action, appName }) => {
+      if (action === 'launch') {
+        const msg = await appLauncher.launch(appName);
+        return { content: [{ type: 'text' as const, text: msg }] };
+      }
+
+      if (action === 'quit') {
+        const msg = await appLauncher.quit(appName);
+        return { content: [{ type: 'text' as const, text: msg }] };
+      }
+
+      // is_running
+      const running = await appLauncher.isRunning(appName);
+      return {
+        content: [{ type: 'text' as const, text: `${appName}: ${running ? 'running' : 'not running'}` }],
+      };
+    }
+  );
+
+  server.registerTool(
+    'desktop_ocr',
+    {
+      title: 'Desktop OCR',
+      description:
+        'Extract text from the screen using OCR (optical character recognition). ' +
+        'Useful for apps without accessibility support. ' +
+        'Optionally specify a region [x, y, width, height] to limit the scan area.',
+      inputSchema: {
+        x: z.number().optional().describe('Region X coordinate'),
+        y: z.number().optional().describe('Region Y coordinate'),
+        width: z.number().optional().describe('Region width'),
+        height: z.number().optional().describe('Region height'),
+        language: z.string().optional().describe('OCR language code (e.g. "eng", "deu"). Default: eng.'),
+      },
+      annotations: {
+        readOnlyHint: true,
+      },
+    },
+    async ({ x, y, width, height, language }) => {
+      const region = (x != null && y != null && width != null && height != null)
+        ? [x, y, width, height] as [number, number, number, number]
+        : undefined;
+
+      const result = await ocrEngine.recognize({ region, language: language ?? 'eng' });
+
+      return {
+        content: [{
+          type: 'text' as const,
+          text: result.text
+            ? `OCR Text (${Math.round(result.confidence)}% confidence):\n${result.text}`
+            : 'No text recognized in the specified area.',
+        }],
+      };
+    }
+  );
+
+  server.registerTool(
+    'desktop_displays',
+    {
+      title: 'Desktop Displays',
+      description:
+        'List all connected displays/monitors. ' +
+        'Use the returned display ID with desktop_screenshot\'s screen parameter to capture a specific monitor.',
+      inputSchema: {},
+      annotations: {
+        readOnlyHint: true,
+      },
+    },
+    async () => {
+      const displays = await screenCapture.listDisplays();
+      if (displays.length === 0) {
+        return { content: [{ type: 'text' as const, text: 'No displays detected.' }] };
+      }
+      const lines = displays.map((d) => `[${d.id}] ${d.name}`);
+      return {
+        content: [{ type: 'text' as const, text: `Displays:\n${lines.join('\n')}` }],
       };
     }
   );

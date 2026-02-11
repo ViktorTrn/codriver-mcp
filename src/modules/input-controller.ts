@@ -4,7 +4,7 @@
  */
 
 import * as robot from '@jitsi/robotjs';
-import type { ClickOptions, TypeOptions, KeyOptions, ScrollOptions } from '../types/index.js';
+import type { ClickOptions, TypeOptions, KeyOptions, ScrollOptions, DragOptions } from '../types/index.js';
 
 // Map user-friendly key names to robotjs key names
 const KEY_MAP: Record<string, string> = {
@@ -134,6 +134,20 @@ export class InputController {
         await sleep(50);
       }
     }
+  }
+
+  /**
+   * Drag from one coordinate to another
+   */
+  async drag(options: DragOptions): Promise<void> {
+    const { startCoordinate, endCoordinate } = options;
+    const [sx, sy] = startCoordinate;
+    const [ex, ey] = endCoordinate;
+
+    robot.moveMouse(sx, sy);
+    robot.mouseToggle('down');
+    robot.dragMouse(ex, ey);
+    robot.mouseToggle('up');
   }
 
   /**

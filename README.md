@@ -2,7 +2,7 @@
 
 **AI-powered Desktop Automation via Model Context Protocol**
 
-CoDriver is an MCP server that gives Claude control over any desktop application. It captures screenshots, reads accessibility trees, injects mouse/keyboard input, and manages windows - enabling real-time human-AI collaboration on the desktop.
+CoDriver is an MCP server that gives Claude control over any desktop application. It captures screenshots, reads accessibility trees, performs OCR, and injects mouse/keyboard input - enabling real-time human-AI collaboration on the desktop.
 
 > What "Claude in Chrome" is for the browser, CoDriver is for the entire desktop.
 
@@ -10,14 +10,18 @@ CoDriver is an MCP server that gives Claude control over any desktop application
 
 | Tool | Description |
 |------|-------------|
-| `desktop_screenshot` | Capture full desktop or window as PNG/JPEG |
+| `desktop_screenshot` | Capture full desktop, window, or specific monitor (PNG/JPEG) |
 | `desktop_click` | Click at coordinates or by element ref |
 | `desktop_type` | Type text at cursor or into a specific element |
 | `desktop_key` | Press key combinations (`ctrl+c`, `alt+tab`, `f5`) |
 | `desktop_scroll` | Scroll in any direction at position |
+| `desktop_drag` | Drag & drop between coordinates or element refs |
 | `desktop_windows` | List and focus application windows |
 | `desktop_read_ui` | Read accessibility tree with ref IDs |
 | `desktop_find` | Find UI elements by name, role, or value |
+| `desktop_launch` | Launch, quit, or check status of applications |
+| `desktop_ocr` | Extract text from screen via OCR (tesseract.js) |
+| `desktop_displays` | List connected monitors for multi-display capture |
 
 ## Quick Start
 
@@ -53,17 +57,14 @@ Add to `~/.claude/settings.json`:
 
 ### Remote Access (HTTP Transport)
 
-Start the server with HTTP transport:
-
 ```bash
 node dist/index.js --http                           # localhost:3100
 node dist/index.js --http --port 8080               # custom port
 node dist/index.js --http --host 0.0.0.0            # all interfaces
 node dist/index.js --http --api-key YOUR_SECRET      # with authentication
-CODRIVER_API_KEY=secret node dist/index.js --http    # via env var
 ```
 
-Configure in Claude Code for remote:
+Remote Claude Code configuration:
 
 ```json
 {
@@ -80,8 +81,6 @@ Configure in Claude Code for remote:
 
 ## Usage Examples
 
-Once configured, Claude can control your desktop:
-
 ```
 "Take a screenshot of my desktop"
 -> desktop_screenshot
@@ -95,14 +94,20 @@ Once configured, Claude can control your desktop:
 "Click the Save button"
 -> desktop_click { ref: "ref_3" }
 
+"Drag the file to the trash"
+-> desktop_drag { startRef: "ref_5", endRef: "ref_12" }
+
 "Type into the search field"
 -> desktop_type { ref: "ref_5", text: "hello world" }
 
-"Press Ctrl+S to save"
--> desktop_key { key: "ctrl+s" }
+"Launch Safari"
+-> desktop_launch { action: "launch", appName: "Safari" }
 
-"Show me all open windows"
--> desktop_windows { action: "list" }
+"Read text from this area of the screen"
+-> desktop_ocr { x: 100, y: 200, width: 500, height: 100 }
+
+"Which monitors are connected?"
+-> desktop_displays
 ```
 
 ## Accessibility-Driven Workflow
@@ -133,7 +138,7 @@ This is more reliable than coordinate-based clicking since elements are identifi
 ```bash
 npm run build        # Compile TypeScript
 npm run dev          # Watch mode (tsx)
-npm test             # Run tests (53 tests)
+npm test             # Run tests (69 tests)
 npm run typecheck    # Type-check without emit
 ```
 
@@ -146,21 +151,27 @@ CoDriver MCP Server (Node.js/TypeScript)
   |     +-- stdio (local, default)
   |     +-- Streamable HTTP/SSE (remote, --http flag)
   |
-  +-- Tools
-  |     +-- desktop_screenshot   PNG/JPEG capture
+  +-- Tools (12 total)
+  |     +-- desktop_screenshot   PNG/JPEG capture, multi-monitor
   |     +-- desktop_click        Mouse click (coords or ref)
   |     +-- desktop_type         Keyboard input
   |     +-- desktop_key          Key combinations
   |     +-- desktop_scroll       Scroll wheel
+  |     +-- desktop_drag         Drag & drop
   |     +-- desktop_windows      Window management
   |     +-- desktop_read_ui      Accessibility tree
   |     +-- desktop_find         Element search
+  |     +-- desktop_launch       App lifecycle
+  |     +-- desktop_ocr          Text recognition
+  |     +-- desktop_displays     Monitor listing
   |
   +-- Modules
         +-- ScreenCapture       screenshot-desktop + sharp
         +-- InputController     @jitsi/robotjs
         +-- WindowManager       AppleScript (macOS)
         +-- AccessibilityReader JXA (macOS Accessibility API)
+        +-- AppLauncher         AppleScript (macOS)
+        +-- OcrEngine           tesseract.js
 ```
 
 ## Tech Stack
@@ -172,16 +183,23 @@ CoDriver MCP Server (Node.js/TypeScript)
 | Screenshots | screenshot-desktop + sharp (PNG/JPEG) |
 | Input | @jitsi/robotjs |
 | Accessibility | JXA / osascript (macOS) |
-| Windows | AppleScript / osascript (macOS) |
+| Windows/Apps | AppleScript / osascript (macOS) |
+| OCR | tesseract.js |
 | HTTP Transport | Express + StreamableHTTPServerTransport |
-| Testing | vitest (53 tests) |
+| Testing | vitest (69 tests) |
 
 ## Roadmap
 
 - [x] **Phase 1: MVP** - Screenshots, mouse, keyboard, windows (macOS)
 - [x] **Phase 2: Accessibility** - UI tree reading, element refs, natural language find
 - [x] **Phase 3: Remote** - HTTP/SSE transport, API-key auth, JPEG compression
-- [ ] **Phase 4: Polish** - OCR, drag & drop, app launch, multi-monitor, GIF recording
+- [x] **Phase 4: Polish** - OCR, drag & drop, app launch, multi-monitor
+
+### Future
+- [ ] GIF recording
+- [ ] npm package publishing
+- [ ] Windows platform support
+- [ ] Linux platform support
 
 ## Platform Support
 

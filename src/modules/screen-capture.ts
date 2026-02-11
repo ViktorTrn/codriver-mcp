@@ -5,7 +5,7 @@
 
 import screenshot from 'screenshot-desktop';
 import sharp from 'sharp';
-import type { ScreenshotOptions, ScreenshotResult } from '../types/index.js';
+import type { ScreenshotOptions, ScreenshotResult, DisplayInfo } from '../types/index.js';
 
 export class ScreenCapture {
   /**
@@ -13,10 +13,12 @@ export class ScreenCapture {
    * Uses screenshot-desktop for capture and sharp for processing.
    */
   async capture(options: ScreenshotOptions = {}): Promise<ScreenshotResult> {
-    const { scale = 1.0, region, format = 'png', quality = 80 } = options;
+    const { scale = 1.0, region, format = 'png', quality = 80, screen: screenId } = options;
 
-    // Capture full desktop as PNG buffer
-    const buffer = await screenshot({ format: 'png' }) as Buffer;
+    // Capture desktop (optionally specific screen) as PNG buffer
+    const captureOpts: { format: 'png'; screen?: number } = { format: 'png' };
+    if (screenId != null) captureOpts.screen = screenId;
+    const buffer = await screenshot(captureOpts) as Buffer;
 
     let image = sharp(buffer);
     const metadata = await image.metadata();
@@ -59,6 +61,14 @@ export class ScreenCapture {
       width,
       height,
     };
+  }
+
+  /**
+   * List all available displays/monitors.
+   */
+  async listDisplays(): Promise<DisplayInfo[]> {
+    const displays = await screenshot.listDisplays();
+    return displays.map((d) => ({ id: d.id, name: d.name }));
   }
 }
 

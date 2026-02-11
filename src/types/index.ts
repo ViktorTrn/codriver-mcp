@@ -33,6 +33,7 @@ export interface ScreenshotOptions {
   scale?: number;
   format?: 'png' | 'jpeg';
   quality?: number;
+  screen?: number;
 }
 
 /** Screenshot result */
@@ -67,6 +68,24 @@ export interface ScrollOptions {
   coordinate: Coordinate;
   direction: ScrollDirection;
   amount?: number;
+}
+
+/** Drag options */
+export interface DragOptions {
+  startCoordinate: Coordinate;
+  endCoordinate: Coordinate;
+}
+
+/** Display info for multi-monitor */
+export interface DisplayInfo {
+  id: number;
+  name: string;
+}
+
+/** OCR result */
+export interface OcrResult {
+  text: string;
+  confidence: number;
 }
 
 /** UI Element from accessibility tree */

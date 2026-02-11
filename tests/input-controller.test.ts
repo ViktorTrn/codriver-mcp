@@ -4,6 +4,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('@jitsi/robotjs', () => ({
   moveMouse: vi.fn(),
   mouseClick: vi.fn(),
+  mouseToggle: vi.fn(),
+  dragMouse: vi.fn(),
   typeString: vi.fn(),
   keyTap: vi.fn(),
   scrollMouse: vi.fn(),
@@ -129,6 +131,34 @@ describe('InputController', () => {
       await controller.scroll({ coordinate: [0, 0], direction: 'right', amount: 4 });
 
       expect(robot.scrollMouse).toHaveBeenCalledWith(4, 0);
+    });
+  });
+
+  describe('drag', () => {
+    it('should drag from start to end coordinate', async () => {
+      await controller.drag({
+        startCoordinate: [100, 200],
+        endCoordinate: [300, 400],
+      });
+
+      expect(robot.moveMouse).toHaveBeenCalledWith(100, 200);
+      expect(robot.mouseToggle).toHaveBeenCalledWith('down');
+      expect(robot.dragMouse).toHaveBeenCalledWith(300, 400);
+      expect(robot.mouseToggle).toHaveBeenCalledWith('up');
+    });
+
+    it('should call actions in correct order', async () => {
+      const callOrder: string[] = [];
+      vi.mocked(robot.moveMouse).mockImplementation(() => { callOrder.push('move'); });
+      vi.mocked(robot.mouseToggle).mockImplementation((state) => { callOrder.push(`toggle-${state}`); });
+      vi.mocked(robot.dragMouse).mockImplementation(() => { callOrder.push('drag'); });
+
+      await controller.drag({
+        startCoordinate: [0, 0],
+        endCoordinate: [100, 100],
+      });
+
+      expect(callOrder).toEqual(['move', 'toggle-down', 'drag', 'toggle-up']);
     });
   });
 });
