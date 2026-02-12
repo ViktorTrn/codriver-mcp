@@ -28,8 +28,18 @@ CoDriver is an MCP server that gives Claude control over any desktop application
 ### Prerequisites
 
 - **Node.js** 20+
-- **macOS** (current platform support)
-- **Accessibility permissions** for your terminal (System Settings > Privacy & Security > Accessibility)
+- **macOS** (current platform support, tested on Sequoia 15.x)
+
+### macOS Permissions
+
+CoDriver requires two system permissions. Grant them in **System Settings > Privacy & Security**:
+
+| Permission | Required for | How to grant |
+|------------|-------------|--------------|
+| **Screen Recording** | Screenshots, window listing | Add your terminal/IDE app |
+| **Accessibility** | Mouse clicks, keyboard input, scroll, UI tree reading | Add your terminal/IDE app |
+
+> **Tip:** If you use CoDriver from an IDE (e.g. Windsurf, VS Code), add the **IDE app** to both permission lists, then fully restart it (Cmd+Q).
 
 ### Installation
 
@@ -167,8 +177,8 @@ CoDriver MCP Server (Node.js/TypeScript)
   |
   +-- Modules
         +-- ScreenCapture       screenshot-desktop + sharp
-        +-- InputController     @jitsi/robotjs
-        +-- WindowManager       AppleScript (macOS)
+        +-- InputController     Swift/CGEvent (mouse) + robotjs (keyboard)
+        +-- WindowManager       Swift/CoreGraphics (macOS Sequoia+)
         +-- AccessibilityReader JXA (macOS Accessibility API)
         +-- AppLauncher         AppleScript (macOS)
         +-- OcrEngine           tesseract.js
@@ -181,9 +191,11 @@ CoDriver MCP Server (Node.js/TypeScript)
 | Runtime | Node.js 20 LTS, TypeScript 5.7+ strict |
 | MCP SDK | @modelcontextprotocol/sdk v1.26 |
 | Screenshots | screenshot-desktop + sharp (PNG/JPEG) |
-| Input | @jitsi/robotjs |
+| Mouse Input | Swift/CGEvent (macOS Sequoia compatible) |
+| Keyboard Input | @jitsi/robotjs |
 | Accessibility | JXA / osascript (macOS) |
-| Windows/Apps | AppleScript / osascript (macOS) |
+| Window Management | Swift/CoreGraphics (macOS Sequoia+) |
+| App Launcher | AppleScript / osascript (macOS) |
 | OCR | tesseract.js |
 | HTTP Transport | Express + StreamableHTTPServerTransport |
 | Testing | vitest (69 tests) |
