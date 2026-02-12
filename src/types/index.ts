@@ -117,8 +117,8 @@ export interface TypeWithRefOptions extends TypeOptions {
   ref?: string;
 }
 
-/** Raw JXA element before ref assignment */
-export interface RawJXAElement {
+/** Raw UI element before ref assignment (from JXA on macOS, UIA on Windows) */
+export interface RawUIElement {
   role: string | null;
   title: string | null;
   description: string | null;
@@ -126,5 +126,5 @@ export interface RawJXAElement {
   enabled: boolean | null;
   position: [number, number] | null;
   size: [number, number] | null;
-  children: RawJXAElement[];
+  children: RawUIElement[];
 }

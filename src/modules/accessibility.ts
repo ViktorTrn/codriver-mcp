@@ -1,42 +1,37 @@
 /**
  * Accessibility Module
- * Reads the macOS Accessibility tree via JXA (JavaScript for Automation).
+ * macOS: JXA (JavaScript for Automation) via osascript
+ * Windows: UI Automation via PowerShell + inline C# (System.Windows.Automation)
  * Provides UI element enumeration with ref IDs for programmatic interaction.
  */
 
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import type { UIElement, ReadUIOptions, RawJXAElement, Region } from '../types/index.js';
+import type { UIElement, ReadUIOptions, RawUIElement, Region } from '../types/index.js';
 
 const execFileAsync = promisify(execFile);
 
-/** Interactive roles that are typically actionable */
+/** PowerShell flags for safe, non-interactive execution */
+const PS_FLAGS = ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command'];
+
+/** Escape a string for use inside PowerShell single-quoted strings */
+function escapePowerShell(str: string): string {
+  return str.replace(/'/g, "''");
+}
+
+/** Interactive roles that are typically actionable (macOS AX + Windows UIA) */
 const INTERACTIVE_ROLES = new Set([
-  'AXButton',
-  'AXCheckBox',
-  'AXRadioButton',
-  'AXTextField',
-  'AXTextArea',
-  'AXComboBox',
-  'AXPopUpButton',
-  'AXMenuButton',
-  'AXSlider',
-  'AXIncrementor',
-  'AXLink',
-  'AXTab',
-  'AXTabGroup',
-  'AXMenuItem',
-  'AXMenu',
-  'AXToolbar',
-  'AXList',
-  'AXTable',
-  'AXOutline',
-  'AXDisclosureTriangle',
-  'AXSwitch',
-  'AXColorWell',
-  'AXDateField',
-  'AXSearchField',
-  'AXSecureTextField',
+  // macOS AX roles
+  'AXButton', 'AXCheckBox', 'AXRadioButton', 'AXTextField', 'AXTextArea',
+  'AXComboBox', 'AXPopUpButton', 'AXMenuButton', 'AXSlider', 'AXIncrementor',
+  'AXLink', 'AXTab', 'AXTabGroup', 'AXMenuItem', 'AXMenu', 'AXToolbar',
+  'AXList', 'AXTable', 'AXOutline', 'AXDisclosureTriangle', 'AXSwitch',
+  'AXColorWell', 'AXDateField', 'AXSearchField', 'AXSecureTextField',
+  // Windows UIA ControlType names
+  'Button', 'CheckBox', 'RadioButton', 'Edit', 'ComboBox', 'Slider',
+  'Hyperlink', 'Tab', 'TabItem', 'MenuItem', 'Menu', 'MenuBar',
+  'ToolBar', 'List', 'ListItem', 'Table', 'Tree', 'TreeItem',
+  'DataGrid', 'DataItem', 'ScrollBar', 'Spinner',
 ]);
 
 export class AccessibilityReader {
@@ -48,13 +43,16 @@ export class AccessibilityReader {
    * Read the accessibility tree of a window or the frontmost app.
    */
   async readUI(options: ReadUIOptions = {}): Promise<UIElement[]> {
-    if (process.platform !== 'darwin') {
-      throw new Error(`Accessibility reading not yet implemented for ${process.platform}. Currently macOS only.`);
-    }
-
     const { windowTitle, depth = 10, filter = 'all' } = options;
 
-    const rawTree = await this.readTreeJXA(windowTitle, depth);
+    let rawTree: RawUIElement[];
+    if (process.platform === 'darwin') {
+      rawTree = await this.readTreeJXA(windowTitle, depth);
+    } else if (process.platform === 'win32') {
+      rawTree = await this.readTreeUIA(windowTitle, depth);
+    } else {
+      throw new Error(`Accessibility reading not implemented for ${process.platform}.`);
+    }
 
     // Reset ref counter and cache for each read
     this._refCounter = 0;
@@ -81,14 +79,11 @@ export class AccessibilityReader {
     return [Math.round(x + w / 2), Math.round(y + h / 2)];
   }
 
-  /**
-   * Execute JXA script to read the accessibility tree.
-   * Returns the raw JSON tree from osascript.
-   */
-  private async readTreeJXA(windowTitle: string | undefined, maxDepth: number): Promise<RawJXAElement[]> {
+  // --- macOS JXA Implementation ---
+
+  private async readTreeJXA(windowTitle: string | undefined, maxDepth: number): Promise<RawUIElement[]> {
     const safeTitle = windowTitle?.replace(/'/g, "\\'") ?? '';
 
-    // Build JXA script that finds the target process by name OR window title
     const script = `
       ObjC.import('stdlib');
 
@@ -187,13 +182,13 @@ export class AccessibilityReader {
 
     try {
       const { stdout } = await execFileAsync('osascript', ['-l', 'JavaScript', '-e', script], {
-        maxBuffer: 10 * 1024 * 1024, // 10MB for large trees
-        timeout: 60000, // 60s timeout (JXA Apple Events are slow: ~100ms per attribute per element)
+        maxBuffer: 10 * 1024 * 1024,
+        timeout: 60000,
       });
 
       const trimmed = stdout.trim();
       if (!trimmed) return [];
-      return JSON.parse(trimmed) as RawJXAElement[];
+      return JSON.parse(trimmed) as RawUIElement[];
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       if (msg.includes('not allowed assistive access') || msg.includes('accessibility')) {
@@ -206,10 +201,136 @@ export class AccessibilityReader {
     }
   }
 
+  // --- Windows UIA Implementation ---
+
+  private async readTreeUIA(windowTitle: string | undefined, maxDepth: number): Promise<RawUIElement[]> {
+    const safeTitle = windowTitle ? escapePowerShell(windowTitle) : '';
+
+    // PowerShell + inline C# using System.Windows.Automation
+    const script = `
+Add-Type -AssemblyName UIAutomationClient
+Add-Type -AssemblyName UIAutomationTypes
+Add-Type @'
+using System;
+using System.Collections.Generic;
+using System.Windows.Automation;
+using System.Runtime.InteropServices;
+
+public class UIAReader {
+    [DllImport("user32.dll")]
+    static extern IntPtr GetForegroundWindow();
+
+    public static string ReadTree(string windowTitle, int maxDepth) {
+        AutomationElement root;
+
+        if (string.IsNullOrEmpty(windowTitle)) {
+            // Get foreground window
+            IntPtr hwnd = GetForegroundWindow();
+            root = AutomationElement.FromHandle(hwnd);
+        } else {
+            // Find window by title substring
+            var desktop = AutomationElement.RootElement;
+            root = null;
+
+            var windows = desktop.FindAll(TreeScope.Children, Condition.TrueCondition);
+            foreach (AutomationElement win in windows) {
+                try {
+                    string name = win.Current.Name ?? "";
+                    if (name.IndexOf(windowTitle, StringComparison.OrdinalIgnoreCase) >= 0) {
+                        root = win;
+                        break;
+                    }
+                } catch {}
+            }
+
+            if (root == null) return "[]";
+        }
+
+        var results = new List<string>();
+        string json = ReadElement(root, 0, maxDepth);
+        if (json != null) results.Add(json);
+        return "[" + string.Join(",", results) + "]";
+    }
+
+    static string ReadElement(AutomationElement elem, int depth, int maxDepth) {
+        if (elem == null || depth > maxDepth) return null;
+
+        try {
+            var current = elem.Current;
+            string role = current.ControlType?.ProgrammaticName?.Replace("ControlType.", "") ?? "Unknown";
+            string title = (current.Name ?? "").Replace("\\\\", "\\\\\\\\").Replace("\\"", "\\\\\\"");
+            string desc = "";
+            try { desc = (current.HelpText ?? "").Replace("\\\\", "\\\\\\\\").Replace("\\"", "\\\\\\""); } catch {}
+            bool enabled = current.IsEnabled;
+
+            string val = null;
+            try {
+                object pattern;
+                if (elem.TryGetCurrentPattern(ValuePattern.Pattern, out pattern)) {
+                    val = ((ValuePattern)pattern).Current.Value;
+                }
+            } catch {}
+            string valJson = val != null
+                ? "\\"" + val.Replace("\\\\", "\\\\\\\\").Replace("\\"", "\\\\\\"") + "\\""
+                : "null";
+
+            var rect = current.BoundingRectangle;
+            string posJson = !rect.IsEmpty
+                ? string.Format("[{0},{1}]", (int)rect.X, (int)rect.Y)
+                : "null";
+            string sizeJson = !rect.IsEmpty
+                ? string.Format("[{0},{1}]", (int)rect.Width, (int)rect.Height)
+                : "null";
+
+            // Read children
+            var childJsons = new List<string>();
+            if (depth < maxDepth) {
+                try {
+                    var children = elem.FindAll(TreeScope.Children, Condition.TrueCondition);
+                    foreach (AutomationElement child in children) {
+                        string childJson = ReadElement(child, depth + 1, maxDepth);
+                        if (childJson != null) childJsons.Add(childJson);
+                    }
+                } catch {}
+            }
+
+            return string.Format(
+                "{{\\"role\\":\\"{0}\\",\\"title\\":\\"{1}\\",\\"description\\":{2},\\"value\\":{3},\\"enabled\\":{4},\\"position\\":{5},\\"size\\":{6},\\"children\\":[{7}]}}",
+                role, title,
+                string.IsNullOrEmpty(desc) ? "null" : "\\"" + desc + "\\"",
+                valJson,
+                enabled ? "true" : "false",
+                posJson, sizeJson,
+                string.Join(",", childJsons)
+            );
+        } catch {
+            return null;
+        }
+    }
+}
+'@
+Write-Output ([UIAReader]::ReadTree('${safeTitle}', ${maxDepth}))
+`;
+
+    try {
+      const { stdout } = await execFileAsync('powershell', [...PS_FLAGS, script], {
+        maxBuffer: 10 * 1024 * 1024,
+        timeout: 60000,
+      });
+
+      const trimmed = stdout.trim();
+      if (!trimmed || trimmed === '[]') return [];
+      return JSON.parse(trimmed) as RawUIElement[];
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to read accessibility tree: ${msg}`);
+    }
+  }
+
   /**
    * Recursively assign ref IDs to raw elements and build the cache.
    */
-  private assignRefs(rawElements: RawJXAElement[], filter: 'interactive' | 'all'): UIElement[] {
+  private assignRefs(rawElements: RawUIElement[], filter: 'interactive' | 'all'): UIElement[] {
     const result: UIElement[] = [];
 
     for (const raw of rawElements) {
@@ -222,7 +343,7 @@ export class AccessibilityReader {
     return result;
   }
 
-  private processElement(raw: RawJXAElement, filter: 'interactive' | 'all'): UIElement | null {
+  private processElement(raw: RawUIElement, filter: 'interactive' | 'all'): UIElement | null {
     if (!raw) return null;
 
     const role = raw.role ?? 'AXUnknown';
@@ -273,10 +394,12 @@ export class AccessibilityReader {
   }
 
   /**
-   * Convert AX role names to human-friendly names.
+   * Convert role names to human-friendly names.
+   * Supports both macOS AX roles and Windows UIA ControlType names.
    */
-  private friendlyRole(axRole: string): string {
+  private friendlyRole(role: string): string {
     const map: Record<string, string> = {
+      // macOS AX roles
       AXWindow: 'window',
       AXButton: 'button',
       AXCheckBox: 'checkbox',
@@ -322,8 +445,46 @@ export class AccessibilityReader {
       AXSecureTextField: 'password',
       AXDateField: 'datefield',
       AXColorWell: 'color',
+      // Windows UIA ControlType names
+      Window: 'window',
+      Button: 'button',
+      CheckBox: 'checkbox',
+      RadioButton: 'radio',
+      Edit: 'textfield',
+      Document: 'textarea',
+      Text: 'text',
+      Image: 'image',
+      Group: 'group',
+      ScrollBar: 'scrollbar',
+      ToolBar: 'toolbar',
+      MenuBar: 'menubar',
+      Menu: 'menu',
+      MenuItem: 'menuitem',
+      ComboBox: 'combobox',
+      List: 'list',
+      ListItem: 'listitem',
+      Table: 'table',
+      Tree: 'outline',
+      TreeItem: 'treeitem',
+      DataGrid: 'table',
+      DataItem: 'row',
+      Hyperlink: 'link',
+      Tab: 'tabgroup',
+      TabItem: 'tab',
+      Slider: 'slider',
+      Spinner: 'spinner',
+      StatusBar: 'statusbar',
+      Header: 'heading',
+      HeaderItem: 'heading',
+      Pane: 'group',
+      TitleBar: 'titlebar',
+      Thumb: 'thumb',
+      ToolTip: 'tooltip',
+      Calendar: 'datefield',
+      Custom: 'custom',
+      Unknown: 'unknown',
     };
-    return map[axRole] ?? axRole.replace(/^AX/, '').toLowerCase();
+    return map[role] ?? role.replace(/^AX/, '').toLowerCase();
   }
 
   /**

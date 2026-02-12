@@ -23,12 +23,21 @@ CoDriver is an MCP server that gives Claude control over any desktop application
 | `desktop_ocr` | Extract text from screen via OCR (tesseract.js) |
 | `desktop_displays` | List connected monitors for multi-display capture |
 
+## Platform Support
+
+| Platform | Status | Mouse/Keyboard | Window Mgmt | Accessibility | Screenshots | OCR |
+|----------|--------|---------------|-------------|---------------|-------------|-----|
+| **macOS** | Supported | Swift/CGEvent + robotjs | Swift/CoreGraphics | JXA/osascript | screenshot-desktop | tesseract.js |
+| **Windows** | Supported | robotjs | PowerShell + Win32 P/Invoke | PowerShell + UI Automation | screenshot-desktop | tesseract.js |
+| Linux | Planned | - | - | - | - | - |
+
 ## Quick Start
 
 ### Prerequisites
 
 - **Node.js** 20+
-- **macOS** (current platform support, tested on Sequoia 15.x)
+- **macOS** or **Windows 10/11**
+- **Windows only**: Visual Studio Build Tools (for robotjs native compilation)
 
 ### macOS Permissions
 
@@ -40,6 +49,15 @@ CoDriver requires two system permissions. Grant them in **System Settings > Priv
 | **Accessibility** | Mouse clicks, keyboard input, scroll, UI tree reading | Add your terminal/IDE app |
 
 > **Tip:** If you use CoDriver from an IDE (e.g. Windsurf, VS Code), add the **IDE app** to both permission lists, then fully restart it (Cmd+Q).
+
+### Windows Permissions
+
+| Permission | Required for | Notes |
+|------------|-------------|-------|
+| **None** | Screenshots, window listing, UI tree reading | Works out of the box |
+| **Admin** (optional) | Reading UI of admin-elevated processes | Run terminal as Administrator |
+
+> **Note:** robotjs requires **Visual Studio Build Tools** to compile native modules on Windows. Install via `npm install --global windows-build-tools` or download from [Visual Studio](https://visualstudio.microsoft.com/downloads/).
 
 ### Installation
 
@@ -148,7 +166,7 @@ This is more reliable than coordinate-based clicking since elements are identifi
 ```bash
 npm run build        # Compile TypeScript
 npm run dev          # Watch mode (tsx)
-npm test             # Run tests (69 tests)
+npm test             # Run tests (107 tests)
 npm run typecheck    # Type-check without emit
 ```
 
@@ -176,29 +194,29 @@ CoDriver MCP Server (Node.js/TypeScript)
   |     +-- desktop_displays     Monitor listing
   |
   +-- Modules
-        +-- ScreenCapture       screenshot-desktop + sharp
-        +-- InputController     Swift/CGEvent (mouse) + robotjs (keyboard)
-        +-- WindowManager       Swift/CoreGraphics (macOS Sequoia+)
-        +-- AccessibilityReader JXA (macOS Accessibility API)
-        +-- AppLauncher         AppleScript (macOS)
-        +-- OcrEngine           tesseract.js
+        +-- ScreenCapture       screenshot-desktop + sharp (cross-platform)
+        +-- InputController     Swift/CGEvent (macOS) | robotjs (Windows)
+        +-- WindowManager       Swift/CoreGraphics (macOS) | PowerShell+Win32 (Windows)
+        +-- AccessibilityReader JXA/osascript (macOS) | PowerShell+UIA (Windows)
+        +-- AppLauncher         AppleScript (macOS) | PowerShell (Windows)
+        +-- OcrEngine           tesseract.js (cross-platform)
 ```
 
 ## Tech Stack
 
-| Component | Technology |
-|-----------|------------|
-| Runtime | Node.js 20 LTS, TypeScript 5.7+ strict |
-| MCP SDK | @modelcontextprotocol/sdk v1.26 |
-| Screenshots | screenshot-desktop + sharp (PNG/JPEG) |
-| Mouse Input | Swift/CGEvent (macOS Sequoia compatible) |
-| Keyboard Input | @jitsi/robotjs |
-| Accessibility | JXA / osascript (macOS) |
-| Window Management | Swift/CoreGraphics (macOS Sequoia+) |
-| App Launcher | AppleScript / osascript (macOS) |
-| OCR | tesseract.js |
-| HTTP Transport | Express + StreamableHTTPServerTransport |
-| Testing | vitest (69 tests) |
+| Component | macOS | Windows |
+|-----------|-------|---------|
+| Runtime | Node.js 20 LTS, TypeScript 5.7+ strict | same |
+| MCP SDK | @modelcontextprotocol/sdk v1.26 | same |
+| Screenshots | screenshot-desktop + sharp | same |
+| Mouse Input | Swift/CGEvent | @jitsi/robotjs |
+| Keyboard Input | @jitsi/robotjs | same |
+| Accessibility | JXA / osascript | PowerShell + UI Automation (System.Windows.Automation) |
+| Window Management | Swift/CoreGraphics | PowerShell + Win32 P/Invoke |
+| App Launcher | AppleScript / osascript | PowerShell (Start-Process / Stop-Process) |
+| OCR | tesseract.js | same |
+| HTTP Transport | Express + StreamableHTTPServerTransport | same |
+| Testing | vitest (107 tests) | same |
 
 ## Roadmap
 
@@ -206,20 +224,12 @@ CoDriver MCP Server (Node.js/TypeScript)
 - [x] **Phase 2: Accessibility** - UI tree reading, element refs, natural language find
 - [x] **Phase 3: Remote** - HTTP/SSE transport, API-key auth, JPEG compression
 - [x] **Phase 4: Polish** - OCR, drag & drop, app launch, multi-monitor
+- [x] **Phase 5: Windows** - Full Windows 10/11 support
 
 ### Future
 - [x] npm package publishing (`npm install -g codriver-mcp`)
 - [ ] GIF recording
-- [ ] Windows platform support
 - [ ] Linux platform support
-
-## Platform Support
-
-| Platform | Status |
-|----------|--------|
-| macOS | Supported |
-| Windows | Planned |
-| Linux | Planned |
 
 ## License
 

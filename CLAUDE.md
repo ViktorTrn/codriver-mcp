@@ -6,22 +6,23 @@
 
 **Analogy:** What "Claude in Chrome" is for the browser, CoDriver is for the entire desktop.
 
-**Current Status:** Phase 1 - MVP Complete (macOS)
+**Current Status:** v0.5.0 - macOS + Windows Support
 
 ## Architecture
 
 ```
-Claude Code (Mac/Linux)
+Claude Code (Mac/Windows)
   |
-  | MCP Protocol (stdio local / WebSocket remote)
+  | MCP Protocol (stdio local / HTTP remote)
   |
-CoDriver MCP Server (Windows/Mac/Linux)
+CoDriver MCP Server (macOS / Windows)
   |
-  +-- ScreenCapture    - Desktop/Window screenshots (screenshot-desktop + sharp)
-  +-- AccessibilityTree - UI element tree (Windows UIA / macOS AX / AT-SPI)
-  +-- InputController   - Mouse + Keyboard injection (@jitsi/robotjs)
-  +-- WindowManager     - Window list, focus, resize (AppleScript/osascript)
-  +-- OCR Engine        - Fallback text recognition (tesseract.js)
+  +-- ScreenCapture       - screenshot-desktop + sharp (cross-platform)
+  +-- InputController     - Swift/CGEvent (macOS) | robotjs (Windows)
+  +-- WindowManager       - Swift/CoreGraphics (macOS) | PowerShell+Win32 (Windows)
+  +-- AccessibilityReader - JXA/osascript (macOS) | PowerShell+UIA (Windows)
+  +-- AppLauncher         - AppleScript (macOS) | PowerShell (Windows)
+  +-- OCR Engine          - tesseract.js (cross-platform)
 ```
 
 ### Tech Stack

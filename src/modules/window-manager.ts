@@ -2,7 +2,7 @@
  * WindowManager Module
  * Handles window enumeration, focus, and management.
  * macOS: CoreGraphics (listing) + AppleScript (focus).
- * CoreGraphics only needs Screen Recording permission (no Accessibility).
+ * Windows: PowerShell + inline C# (Win32 P/Invoke).
  */
 
 import { execFile } from 'node:child_process';
@@ -11,35 +11,36 @@ import type { WindowInfo } from '../types/index.js';
 
 const execFileAsync = promisify(execFile);
 
+/** PowerShell flags for safe, non-interactive execution */
+const PS_FLAGS = ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command'];
+
+/** Escape a string for use inside PowerShell single-quoted strings */
+function escapePowerShell(str: string): string {
+  return str.replace(/'/g, "''");
+}
+
 export class WindowManager {
   /**
    * List all open windows with title, process name, position, and size.
-   * Uses CoreGraphics on macOS (requires Screen Recording, NOT Accessibility).
    */
   async listWindows(): Promise<WindowInfo[]> {
-    if (process.platform !== 'darwin') {
-      throw new Error(`Window listing not yet implemented for ${process.platform}. Currently macOS only.`);
-    }
-
-    return this.listWindowsMacOS();
+    if (process.platform === 'darwin') return this.listWindowsMacOS();
+    if (process.platform === 'win32') return this.listWindowsWindows();
+    throw new Error(`Window listing not implemented for ${process.platform}.`);
   }
 
   /**
    * Focus a window by title (substring match) or window ID.
    */
   async focusWindow(titleOrId: string | number): Promise<void> {
-    if (process.platform !== 'darwin') {
-      throw new Error(`Window focus not yet implemented for ${process.platform}. Currently macOS only.`);
-    }
-
-    await this.focusWindowMacOS(String(titleOrId));
+    if (process.platform === 'darwin') return this.focusWindowMacOS(String(titleOrId));
+    if (process.platform === 'win32') return this.focusWindowWindows(String(titleOrId));
+    throw new Error(`Window focus not implemented for ${process.platform}.`);
   }
 
   // --- macOS Implementation ---
 
   private async listWindowsMacOS(): Promise<WindowInfo[]> {
-    // Use Swift + CoreGraphics to list windows.
-    // Only requires Screen Recording permission (not Accessibility).
     const swiftCode = `
 import CoreGraphics
 import Foundation
@@ -96,7 +97,7 @@ if let data = try? encoder.encode(results), let json = String(data: data, encodi
 
     try {
       const { stdout } = await execFileAsync('swift', ['-e', swiftCode], {
-        timeout: 30000, // Swift compiler needs time on first run
+        timeout: 30000,
       });
 
       const trimmed = stdout.trim();
@@ -125,7 +126,6 @@ if let data = try? encoder.encode(results), let json = String(data: data, encodi
       }));
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
-      // Only match permission errors from macOS, not Swift source code in error output
       if (msg.includes('not permitted') || msg.includes('permission denied')) {
         throw new Error(
           'Screen Recording permission not granted. ' +
@@ -137,10 +137,6 @@ if let data = try? encoder.encode(results), let json = String(data: data, encodi
   }
 
   private async focusWindowMacOS(title: string): Promise<void> {
-    // Focus still uses AppleScript (NSRunningApplication + AXUIElement).
-    // Uses NSRunningApplication to activate the process (no Accessibility needed),
-    // then osascript to raise the specific window (needs Accessibility).
-    // Fallback: just activate the process if AXRaise fails.
     const escapedTitle = title.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 
     const script = `
@@ -170,10 +166,8 @@ if let data = try? encoder.encode(results), let json = String(data: data, encodi
         throw new Error(`Window with title containing "${title}" not found`);
       }
     } catch (error) {
-      // Fallback: Try activating by process name using open command
       const msg = error instanceof Error ? error.message : String(error);
       if (msg.includes('not allowed') || msg.includes('Berechtigung') || msg.includes('-25211')) {
-        // Accessibility not available - try to activate by app name match
         await this.focusByProcessName(title);
       } else if (msg.includes('not found')) {
         throw error;
@@ -183,9 +177,6 @@ if let data = try? encoder.encode(results), let json = String(data: data, encodi
     }
   }
 
-  /**
-   * Fallback: activate app by process name when Accessibility is not available.
-   */
   private async focusByProcessName(title: string): Promise<void> {
     const swiftCode = `
 import AppKit
@@ -205,6 +196,166 @@ print("not found")
     const { stdout } = await execFileAsync('swift', ['-e', swiftCode], { timeout: 10000 });
     if (stdout.trim() === 'not found') {
       throw new Error(`No app matching "${title}" found. Accessibility permission may be needed for window-level focus.`);
+    }
+  }
+
+  // --- Windows Implementation ---
+
+  private async listWindowsWindows(): Promise<WindowInfo[]> {
+    // PowerShell + inline C# using P/Invoke for window enumeration
+    const script = `
+Add-Type @'
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Runtime.InteropServices;
+using System.Text;
+
+public class WindowEnum {
+    [DllImport("user32.dll")]
+    static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
+
+    [DllImport("user32.dll")]
+    static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+
+    [DllImport("user32.dll")]
+    static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+    [DllImport("user32.dll")]
+    static extern bool IsWindowVisible(IntPtr hWnd);
+
+    delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
+    [StructLayout(LayoutKind.Sequential)]
+    struct RECT { public int Left, Top, Right, Bottom; }
+
+    public static string ListWindows() {
+        var results = new List<string>();
+        IntPtr fg = GetForegroundWindow();
+
+        EnumWindows((hWnd, lParam) => {
+            if (!IsWindowVisible(hWnd)) return true;
+
+            var sb = new StringBuilder(256);
+            GetWindowText(hWnd, sb, sb.Capacity);
+            string title = sb.ToString();
+            if (string.IsNullOrEmpty(title)) return true;
+
+            RECT rect;
+            GetWindowRect(hWnd, out rect);
+
+            uint pid;
+            GetWindowThreadProcessId(hWnd, out pid);
+            string procName = "";
+            try { procName = Process.GetProcessById((int)pid).ProcessName; } catch {}
+
+            bool focused = hWnd == fg;
+            int w = rect.Right - rect.Left;
+            int h = rect.Bottom - rect.Top;
+
+            results.Add(string.Format(
+                "{{\\"processName\\":\\"{0}\\",\\"title\\":\\"{1}\\",\\"x\\":{2},\\"y\\":{3},\\"width\\":{4},\\"height\\":{5},\\"isFocused\\":{6},\\"windowId\\":{7}}}",
+                procName.Replace("\\\\","\\\\\\\\").Replace("\\"","\\\\\\""),
+                title.Replace("\\\\","\\\\\\\\").Replace("\\"","\\\\\\""),
+                rect.Left, rect.Top, w, h,
+                focused.ToString().ToLower(),
+                (int)hWnd
+            ));
+
+            return true;
+        }, IntPtr.Zero);
+
+        return "[" + string.Join(",", results) + "]";
+    }
+}
+'@
+Write-Output ([WindowEnum]::ListWindows())
+`;
+
+    try {
+      const { stdout } = await execFileAsync('powershell', [...PS_FLAGS, script], {
+        timeout: 30000,
+      });
+
+      const trimmed = stdout.trim();
+      if (!trimmed || trimmed === '[]') return [];
+
+      const entries = JSON.parse(trimmed) as Array<{
+        processName: string;
+        title: string;
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+        isFocused: boolean;
+        windowId: number;
+      }>;
+
+      return entries.map((entry, index) => ({
+        id: entry.windowId || index,
+        processName: entry.processName,
+        title: entry.title,
+        x: entry.x,
+        y: entry.y,
+        width: entry.width,
+        height: entry.height,
+        isFocused: entry.isFocused,
+      }));
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to list windows: ${msg}`);
+    }
+  }
+
+  private async focusWindowWindows(title: string): Promise<void> {
+    const safe = escapePowerShell(title);
+
+    const script = `
+Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+
+public class WindowFocus {
+    [DllImport("user32.dll")]
+    public static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+    public const int SW_RESTORE = 9;
+}
+'@
+
+$proc = Get-Process | Where-Object { $_.MainWindowTitle -like '*${safe}*' -and $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+if ($proc) {
+    [WindowFocus]::ShowWindow($proc.MainWindowHandle, [WindowFocus]::SW_RESTORE)
+    [WindowFocus]::SetForegroundWindow($proc.MainWindowHandle)
+    Write-Output 'focused'
+} else {
+    Write-Output 'not found'
+}
+`;
+
+    try {
+      const { stdout } = await execFileAsync('powershell', [...PS_FLAGS, script], {
+        timeout: 10000,
+      });
+
+      if (stdout.trim() === 'not found') {
+        throw new Error(`Window with title containing "${title}" not found`);
+      }
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      if (msg.includes('not found')) {
+        throw error;
+      }
+      throw new Error(`Failed to focus window: ${msg}`);
     }
   }
 }

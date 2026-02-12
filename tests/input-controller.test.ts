@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Mock @jitsi/robotjs - factory must be self-contained (hoisted)
 vi.mock('@jitsi/robotjs', () => {
@@ -186,6 +186,96 @@ describe('InputController', () => {
 
       const swiftArgs = mockExecFile.mock.calls[0][1] as string[];
       expect(swiftArgs[1]).toContain('let steps = 20');
+    });
+  });
+
+  describe('click (Windows - robotjs)', () => {
+    beforeEach(() => {
+      vi.stubGlobal('process', { ...process, platform: 'win32' });
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it('should use robotjs for left click on Windows', async () => {
+      await controller.click({ coordinate: [100, 200] });
+
+      expect(robot.moveMouse).toHaveBeenCalledWith(100, 200);
+      expect(robot.mouseClick).toHaveBeenCalledWith('left');
+      expect(mockExecFile).not.toHaveBeenCalled();
+    });
+
+    it('should use robotjs for right click on Windows', async () => {
+      await controller.click({ coordinate: [50, 75], button: 'right' });
+
+      expect(robot.moveMouse).toHaveBeenCalledWith(50, 75);
+      expect(robot.mouseClick).toHaveBeenCalledWith('right');
+    });
+
+    it('should handle double-click on Windows', async () => {
+      await controller.click({ coordinate: [300, 400], doubleClick: true });
+
+      expect(robot.moveMouse).toHaveBeenCalledWith(300, 400);
+      expect(robot.mouseClick).toHaveBeenCalledWith('left', true);
+    });
+  });
+
+  describe('scroll (Windows - robotjs)', () => {
+    beforeEach(() => {
+      vi.stubGlobal('process', { ...process, platform: 'win32' });
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it('should scroll down via robotjs on Windows', async () => {
+      await controller.scroll({ coordinate: [500, 500], direction: 'down', amount: 3 });
+
+      expect(robot.moveMouse).toHaveBeenCalledWith(500, 500);
+      expect(robot.scrollMouse).toHaveBeenCalledWith(0, -3);
+    });
+
+    it('should scroll up via robotjs on Windows', async () => {
+      await controller.scroll({ coordinate: [100, 100], direction: 'up', amount: 5 });
+
+      expect(robot.moveMouse).toHaveBeenCalledWith(100, 100);
+      expect(robot.scrollMouse).toHaveBeenCalledWith(0, 5);
+    });
+
+    it('should scroll left via robotjs on Windows', async () => {
+      await controller.scroll({ coordinate: [0, 0], direction: 'left', amount: 2 });
+
+      expect(robot.scrollMouse).toHaveBeenCalledWith(-2, 0);
+    });
+
+    it('should scroll right via robotjs on Windows', async () => {
+      await controller.scroll({ coordinate: [0, 0], direction: 'right', amount: 4 });
+
+      expect(robot.scrollMouse).toHaveBeenCalledWith(4, 0);
+    });
+  });
+
+  describe('drag (Windows - robotjs)', () => {
+    beforeEach(() => {
+      vi.stubGlobal('process', { ...process, platform: 'win32' });
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it('should drag via robotjs on Windows', async () => {
+      await controller.drag({
+        startCoordinate: [100, 200],
+        endCoordinate: [300, 400],
+      });
+
+      expect(robot.moveMouse).toHaveBeenCalledWith(100, 200);
+      expect(robot.mouseToggle).toHaveBeenCalledWith('down');
+      expect(robot.dragMouse).toHaveBeenCalledWith(300, 400);
+      expect(robot.mouseToggle).toHaveBeenCalledWith('up');
     });
   });
 });

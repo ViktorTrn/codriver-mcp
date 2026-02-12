@@ -1,7 +1,7 @@
 /**
  * InputController Module
- * Mouse: Swift/CGEvent (robotjs moveMouse broken on macOS Sequoia)
- * Keyboard: robotjs (works fine)
+ * Mouse: Swift/CGEvent on macOS (robotjs moveMouse broken on Sequoia), robotjs on Windows
+ * Keyboard: robotjs (cross-platform)
  */
 
 import robot from '@jitsi/robotjs';

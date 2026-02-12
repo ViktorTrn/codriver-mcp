@@ -17,7 +17,7 @@ export function createServer(): McpServer {
   const server = new McpServer(
     {
       name: 'codriver-mcp',
-      version: '0.4.0',
+      version: '0.5.0',
     },
     {
       capabilities: {

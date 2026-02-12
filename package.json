@@ -1,6 +1,6 @@
 {
   "name": "codriver-mcp",
-  "version": "0.4.2",
+  "version": "0.5.0",
   "description": "AI-powered Desktop Automation via MCP. Lets Claude control any desktop application through screenshots, accessibility trees, OCR, and input injection.",
   "author": "Viktor Trncik <viktor@ibt-freiburg.de>",
   "license": "MIT",
@@ -31,7 +31,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "clean": "rm -rf dist",
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
     "prepublishOnly": "npm run clean && npm run build && npm test"
   },
   "dependencies": {
@@ -55,7 +55,8 @@
     "node": ">=20.0.0"
   },
   "os": [
-    "darwin"
+    "darwin",
+    "win32"
   ],
   "keywords": [
     "mcp",
@@ -67,6 +68,7 @@
     "screen-capture",
     "ocr",
     "macos",
+    "windows",
     "robotjs",
     "ai-agent",
     "anthropic"
