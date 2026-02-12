@@ -86,16 +86,41 @@ export class AccessibilityReader {
    * Returns the raw JSON tree from osascript.
    */
   private async readTreeJXA(windowTitle: string | undefined, maxDepth: number): Promise<RawJXAElement[]> {
-    // Build JXA script that reads the UI tree and outputs JSON
-    const targetExpr = windowTitle
-      ? `systemEvents.processes.whose({ name: { _contains: '${windowTitle.replace(/'/g, "\\'")}' } })[0]`
-      : `systemEvents.processes.whose({ frontmost: true })[0]`;
+    const safeTitle = windowTitle?.replace(/'/g, "\\'") ?? '';
 
+    // Build JXA script that finds the target process by name OR window title
     const script = `
       ObjC.import('stdlib');
 
       const systemEvents = Application('System Events');
-      const targetProcess = ${targetExpr};
+      var targetProcess = null;
+      ${windowTitle ? `
+      // First try matching by process name
+      var byName = systemEvents.processes.whose({ name: { _contains: '${safeTitle}' } });
+      if (byName.length > 0) {
+        targetProcess = byName[0];
+      } else {
+        // Fallback: search window titles across all processes
+        var allProcs = systemEvents.processes();
+        for (var pi = 0; pi < allProcs.length; pi++) {
+          try {
+            var wins = allProcs[pi].windows();
+            for (var wi = 0; wi < wins.length; wi++) {
+              try {
+                var wTitle = wins[wi].name();
+                if (wTitle && wTitle.indexOf('${safeTitle}') !== -1) {
+                  targetProcess = allProcs[pi];
+                  break;
+                }
+              } catch(e) {}
+            }
+            if (targetProcess) break;
+          } catch(e) {}
+        }
+      }
+      ` : `
+      targetProcess = systemEvents.processes.whose({ frontmost: true })[0];
+      `}
 
       function readElement(elem, depth, maxDepth) {
         if (depth > maxDepth) return null;
@@ -138,21 +163,23 @@ export class AccessibilityReader {
       }
 
       var results = [];
-      try {
-        var windows = targetProcess.windows();
-        for (var w = 0; w < windows.length; w++) {
-          var winElem = readElement(windows[w], 0, ${maxDepth});
-          if (winElem) results.push(winElem);
-        }
-      } catch(e) {
-        // If window access fails, try UI elements directly
+      if (targetProcess) {
         try {
-          var uiElems = targetProcess.uiElements();
-          for (var u = 0; u < uiElems.length; u++) {
-            var elem = readElement(uiElems[u], 0, ${maxDepth});
-            if (elem) results.push(elem);
+          var windows = targetProcess.windows();
+          for (var w = 0; w < windows.length; w++) {
+            var winElem = readElement(windows[w], 0, ${maxDepth});
+            if (winElem) results.push(winElem);
           }
-        } catch(e2) {}
+        } catch(e) {
+          // If window access fails, try UI elements directly
+          try {
+            var uiElems = targetProcess.uiElements();
+            for (var u = 0; u < uiElems.length; u++) {
+              var elem = readElement(uiElems[u], 0, ${maxDepth});
+              if (elem) results.push(elem);
+            }
+          } catch(e2) {}
+        }
       }
 
       JSON.stringify(results);

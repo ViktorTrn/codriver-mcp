@@ -19,15 +19,19 @@ describe('WindowManager', () => {
   });
 
   describe('listWindows', () => {
-    it('should parse AppleScript output into WindowInfo array', async () => {
-      const osascriptOutput =
-        'Finder|||Desktop|||0|||25|||1920|||1055|||true\n' +
-        'Safari|||Google|||100|||50|||1200|||800|||false\n';
+    it('should parse Swift/CoreGraphics JSON output into WindowInfo array', async () => {
+      const swiftJsonOutput = JSON.stringify([
+        { processName: 'Finder', title: 'Desktop', x: 0, y: 25, width: 1920, height: 1055, isFocused: true, windowId: 42 },
+        { processName: 'Safari', title: 'Google', x: 100, y: 50, width: 1200, height: 800, isFocused: false, windowId: 55 },
+      ]);
 
-      mockExecFile.mockImplementation((_cmd, _args, callback) => {
-        if (typeof callback === 'function') {
-          (callback as (err: Error | null, result: { stdout: string; stderr: string }) => void)(null, {
-            stdout: osascriptOutput,
+      mockExecFile.mockImplementation((cmd, _args, _opts, callback) => {
+        // execFileAsync uses promisify, which passes (cmd, args, opts, callback)
+        // But with promisify, the callback is the last argument
+        const cb = typeof _opts === 'function' ? _opts : callback;
+        if (typeof cb === 'function') {
+          (cb as (err: Error | null, result: { stdout: string; stderr: string }) => void)(null, {
+            stdout: swiftJsonOutput,
             stderr: '',
           });
         }
@@ -38,7 +42,7 @@ describe('WindowManager', () => {
 
       expect(windows).toHaveLength(2);
       expect(windows[0]).toEqual({
-        id: 0,
+        id: 42,
         processName: 'Finder',
         title: 'Desktop',
         x: 0,
@@ -48,7 +52,7 @@ describe('WindowManager', () => {
         isFocused: true,
       });
       expect(windows[1]).toEqual({
-        id: 1,
+        id: 55,
         processName: 'Safari',
         title: 'Google',
         x: 100,
@@ -57,13 +61,22 @@ describe('WindowManager', () => {
         height: 800,
         isFocused: false,
       });
+
+      // Verify swift was called (not osascript)
+      expect(mockExecFile).toHaveBeenCalledWith(
+        'swift',
+        expect.any(Array),
+        expect.objectContaining({ timeout: 30000 }),
+        expect.any(Function)
+      );
     });
 
     it('should return empty array for no windows', async () => {
-      mockExecFile.mockImplementation((_cmd, _args, callback) => {
-        if (typeof callback === 'function') {
-          (callback as (err: Error | null, result: { stdout: string; stderr: string }) => void)(null, {
-            stdout: '',
+      mockExecFile.mockImplementation((cmd, _args, _opts, callback) => {
+        const cb = typeof _opts === 'function' ? _opts : callback;
+        if (typeof cb === 'function') {
+          (cb as (err: Error | null, result: { stdout: string; stderr: string }) => void)(null, {
+            stdout: '[]',
             stderr: '',
           });
         }
@@ -77,9 +90,10 @@ describe('WindowManager', () => {
 
   describe('focusWindow', () => {
     it('should call osascript to focus window', async () => {
-      mockExecFile.mockImplementation((_cmd, _args, callback) => {
-        if (typeof callback === 'function') {
-          (callback as (err: Error | null, result: { stdout: string; stderr: string }) => void)(null, {
+      mockExecFile.mockImplementation((_cmd, _args, _opts, callback) => {
+        const cb = typeof _opts === 'function' ? _opts : callback;
+        if (typeof cb === 'function') {
+          (cb as (err: Error | null, result: { stdout: string; stderr: string }) => void)(null, {
             stdout: 'focused',
             stderr: '',
           });
@@ -96,9 +110,10 @@ describe('WindowManager', () => {
     });
 
     it('should throw when window not found', async () => {
-      mockExecFile.mockImplementation((_cmd, _args, callback) => {
-        if (typeof callback === 'function') {
-          (callback as (err: Error | null, result: { stdout: string; stderr: string }) => void)(null, {
+      mockExecFile.mockImplementation((_cmd, _args, _opts, callback) => {
+        const cb = typeof _opts === 'function' ? _opts : callback;
+        if (typeof cb === 'function') {
+          (cb as (err: Error | null, result: { stdout: string; stderr: string }) => void)(null, {
             stdout: 'not found',
             stderr: '',
           });

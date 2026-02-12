@@ -1,19 +1,37 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// Mock @jitsi/robotjs
-vi.mock('@jitsi/robotjs', () => ({
-  moveMouse: vi.fn(),
-  mouseClick: vi.fn(),
-  mouseToggle: vi.fn(),
-  dragMouse: vi.fn(),
-  typeString: vi.fn(),
-  keyTap: vi.fn(),
-  scrollMouse: vi.fn(),
-  getMousePos: vi.fn(() => ({ x: 0, y: 0 })),
+// Mock @jitsi/robotjs - factory must be self-contained (hoisted)
+vi.mock('@jitsi/robotjs', () => {
+  const mock = {
+    moveMouse: vi.fn(),
+    mouseClick: vi.fn(),
+    mouseToggle: vi.fn(),
+    dragMouse: vi.fn(),
+    typeString: vi.fn(),
+    keyTap: vi.fn(),
+    scrollMouse: vi.fn(),
+    getMousePos: vi.fn(() => ({ x: 0, y: 0 })),
+  };
+  return { default: mock, ...mock };
+});
+
+// Mock child_process for Swift calls
+vi.mock('node:child_process', () => ({
+  execFile: vi.fn((_cmd: string, _args: string[], _opts: unknown, callback: Function) => {
+    if (typeof _opts === 'function') {
+      (_opts as Function)(null, { stdout: '', stderr: '' });
+    } else if (typeof callback === 'function') {
+      callback(null, { stdout: '', stderr: '' });
+    }
+    return undefined as never;
+  }),
 }));
 
-import * as robot from '@jitsi/robotjs';
+import robot from '@jitsi/robotjs';
+import { execFile } from 'node:child_process';
 import { InputController } from '../src/modules/input-controller.js';
+
+const mockExecFile = vi.mocked(execFile);
 
 describe('InputController', () => {
   let controller: InputController;
@@ -23,26 +41,34 @@ describe('InputController', () => {
     controller = new InputController();
   });
 
-  describe('click', () => {
-    it('should move mouse and click left button', async () => {
+  describe('click (macOS - Swift/CGEvent)', () => {
+    it('should call Swift for left click', async () => {
       await controller.click({ coordinate: [100, 200] });
 
-      expect(robot.moveMouse).toHaveBeenCalledWith(100, 200);
-      expect(robot.mouseClick).toHaveBeenCalledWith('left');
+      expect(mockExecFile).toHaveBeenCalledWith(
+        'swift',
+        expect.any(Array),
+        expect.objectContaining({ timeout: 10000 }),
+        expect.any(Function)
+      );
+      // Swift code should contain the coordinates
+      const swiftArgs = mockExecFile.mock.calls[0][1] as string[];
+      expect(swiftArgs[1]).toContain('CGPoint(x: 100, y: 200)');
+      expect(swiftArgs[1]).toContain('.leftMouseDown');
     });
 
     it('should handle right-click', async () => {
       await controller.click({ coordinate: [50, 75], button: 'right' });
 
-      expect(robot.moveMouse).toHaveBeenCalledWith(50, 75);
-      expect(robot.mouseClick).toHaveBeenCalledWith('right');
+      const swiftArgs = mockExecFile.mock.calls[0][1] as string[];
+      expect(swiftArgs[1]).toContain('.rightMouseDown');
     });
 
     it('should handle double-click', async () => {
       await controller.click({ coordinate: [300, 400], doubleClick: true });
 
-      expect(robot.moveMouse).toHaveBeenCalledWith(300, 400);
-      expect(robot.mouseClick).toHaveBeenCalledWith('left', true);
+      const swiftArgs = mockExecFile.mock.calls[0][1] as string[];
+      expect(swiftArgs[1]).toContain('mouseEventClickState');
     });
   });
 
@@ -106,59 +132,60 @@ describe('InputController', () => {
     });
   });
 
-  describe('scroll', () => {
-    it('should scroll down at position', async () => {
+  describe('scroll (macOS - Swift/CGEvent)', () => {
+    it('should scroll down at position via Swift', async () => {
       await controller.scroll({ coordinate: [500, 500], direction: 'down', amount: 3 });
 
-      expect(robot.moveMouse).toHaveBeenCalledWith(500, 500);
-      expect(robot.scrollMouse).toHaveBeenCalledWith(0, -3);
+      const swiftArgs = mockExecFile.mock.calls[0][1] as string[];
+      expect(swiftArgs[1]).toContain('CGPoint(x: 500, y: 500)');
+      expect(swiftArgs[1]).toContain('wheel1: Int32(-3)');
     });
 
     it('should scroll up at position', async () => {
       await controller.scroll({ coordinate: [100, 100], direction: 'up', amount: 5 });
 
-      expect(robot.moveMouse).toHaveBeenCalledWith(100, 100);
-      expect(robot.scrollMouse).toHaveBeenCalledWith(0, 5);
+      const swiftArgs = mockExecFile.mock.calls[0][1] as string[];
+      expect(swiftArgs[1]).toContain('wheel1: Int32(5)');
     });
 
     it('should scroll left', async () => {
       await controller.scroll({ coordinate: [0, 0], direction: 'left', amount: 2 });
 
-      expect(robot.scrollMouse).toHaveBeenCalledWith(-2, 0);
+      const swiftArgs = mockExecFile.mock.calls[0][1] as string[];
+      expect(swiftArgs[1]).toContain('wheel2: Int32(-2)');
     });
 
     it('should scroll right', async () => {
       await controller.scroll({ coordinate: [0, 0], direction: 'right', amount: 4 });
 
-      expect(robot.scrollMouse).toHaveBeenCalledWith(4, 0);
+      const swiftArgs = mockExecFile.mock.calls[0][1] as string[];
+      expect(swiftArgs[1]).toContain('wheel2: Int32(4)');
     });
   });
 
-  describe('drag', () => {
-    it('should drag from start to end coordinate', async () => {
+  describe('drag (macOS - Swift/CGEvent)', () => {
+    it('should drag via Swift with start and end coordinates', async () => {
       await controller.drag({
         startCoordinate: [100, 200],
         endCoordinate: [300, 400],
       });
 
-      expect(robot.moveMouse).toHaveBeenCalledWith(100, 200);
-      expect(robot.mouseToggle).toHaveBeenCalledWith('down');
-      expect(robot.dragMouse).toHaveBeenCalledWith(300, 400);
-      expect(robot.mouseToggle).toHaveBeenCalledWith('up');
+      const swiftArgs = mockExecFile.mock.calls[0][1] as string[];
+      expect(swiftArgs[1]).toContain('CGPoint(x: 100, y: 200)');
+      expect(swiftArgs[1]).toContain('CGPoint(x: 300, y: 400)');
+      expect(swiftArgs[1]).toContain('.leftMouseDown');
+      expect(swiftArgs[1]).toContain('.leftMouseDragged');
+      expect(swiftArgs[1]).toContain('.leftMouseUp');
     });
 
-    it('should call actions in correct order', async () => {
-      const callOrder: string[] = [];
-      vi.mocked(robot.moveMouse).mockImplementation(() => { callOrder.push('move'); });
-      vi.mocked(robot.mouseToggle).mockImplementation((state) => { callOrder.push(`toggle-${state}`); });
-      vi.mocked(robot.dragMouse).mockImplementation(() => { callOrder.push('drag'); });
-
+    it('should use smooth drag with steps', async () => {
       await controller.drag({
         startCoordinate: [0, 0],
         endCoordinate: [100, 100],
       });
 
-      expect(callOrder).toEqual(['move', 'toggle-down', 'drag', 'toggle-up']);
+      const swiftArgs = mockExecFile.mock.calls[0][1] as string[];
+      expect(swiftArgs[1]).toContain('let steps = 20');
     });
   });
 });
