@@ -188,7 +188,7 @@ export class AccessibilityReader {
     try {
       const { stdout } = await execFileAsync('osascript', ['-l', 'JavaScript', '-e', script], {
         maxBuffer: 10 * 1024 * 1024, // 10MB for large trees
-        timeout: 10000, // 10s timeout
+        timeout: 60000, // 60s timeout (JXA Apple Events are slow: ~100ms per attribute per element)
       });
 
       const trimmed = stdout.trim();
