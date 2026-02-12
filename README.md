@@ -196,8 +196,8 @@ CoDriver MCP Server (Node.js/TypeScript)
 - [x] **Phase 4: Polish** - OCR, drag & drop, app launch, multi-monitor
 
 ### Future
+- [x] npm package publishing (`npm install -g codriver-mcp`)
 - [ ] GIF recording
-- [ ] npm package publishing
 - [ ] Windows platform support
 - [ ] Linux platform support
 

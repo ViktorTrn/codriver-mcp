@@ -101,7 +101,7 @@ MVP           Accessibility  Remote        Polish
 
 ### Deferred to Future
 - GIF Recording
-- npm Package publishing
+- ~~npm Package publishing~~ → ✅ Published as `codriver-mcp@0.4.0`
 - Windows/Linux platform support
 
 ---
