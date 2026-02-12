@@ -1,6 +1,6 @@
 {
   "name": "codriver-mcp",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "AI-powered Desktop Automation via MCP. Lets Claude control any desktop application through screenshots, accessibility trees, OCR, and input injection.",
   "author": "Viktor Trncik <viktor@ibt-freiburg.de>",
   "license": "MIT",
