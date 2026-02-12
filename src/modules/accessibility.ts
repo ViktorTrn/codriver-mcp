@@ -257,10 +257,12 @@ public class UIAReader {
 
         try {
             var current = elem.Current;
-            string role = current.ControlType?.ProgrammaticName?.Replace("ControlType.", "") ?? "Unknown";
-            string title = (current.Name ?? "").Replace("\\\\", "\\\\\\\\").Replace("\\"", "\\\\\\"");
+            string role = "Unknown";
+            if (current.ControlType != null && current.ControlType.ProgrammaticName != null)
+                role = current.ControlType.ProgrammaticName.Replace("ControlType.", "");
+            string title = (current.Name != null ? current.Name : "").Replace("\\\\", "\\\\\\\\").Replace("\\"", "\\\\\\"");
             string desc = "";
-            try { desc = (current.HelpText ?? "").Replace("\\\\", "\\\\\\\\").Replace("\\"", "\\\\\\""); } catch {}
+            try { string ht = current.HelpText; if (ht != null) desc = ht.Replace("\\\\", "\\\\\\\\").Replace("\\"", "\\\\\\""); } catch {}
             bool enabled = current.IsEnabled;
 
             string val = null;
@@ -308,7 +310,7 @@ public class UIAReader {
         }
     }
 }
-'@
+'@ -ReferencedAssemblies UIAutomationClient, UIAutomationTypes, WindowsBase
 Write-Output ([UIAReader]::ReadTree('${safeTitle}', ${maxDepth}))
 `;
 
