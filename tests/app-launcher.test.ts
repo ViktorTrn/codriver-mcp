@@ -39,6 +39,14 @@ describe('AppLauncher', () => {
   });
 
   describe('macOS', () => {
+    beforeEach(() => {
+      vi.stubGlobal('process', { ...process, platform: 'darwin' });
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
     describe('launch', () => {
       it('should launch an app via AppleScript', async () => {
         mockExecSuccess();

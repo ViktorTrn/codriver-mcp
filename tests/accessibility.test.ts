@@ -176,6 +176,14 @@ describe('AccessibilityReader', () => {
   });
 
   describe('macOS (JXA)', () => {
+    beforeEach(() => {
+      vi.stubGlobal('process', { ...process, platform: 'darwin' });
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
     describe('readUI', () => {
       it('should parse JXA output into UIElement tree with refs', async () => {
         mockExecResponse(sampleTreeMacOS);

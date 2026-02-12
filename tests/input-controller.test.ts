@@ -42,6 +42,14 @@ describe('InputController', () => {
   });
 
   describe('click (macOS - Swift/CGEvent)', () => {
+    beforeEach(() => {
+      vi.stubGlobal('process', { ...process, platform: 'darwin' });
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
     it('should call Swift for left click', async () => {
       await controller.click({ coordinate: [100, 200] });
 
@@ -133,6 +141,14 @@ describe('InputController', () => {
   });
 
   describe('scroll (macOS - Swift/CGEvent)', () => {
+    beforeEach(() => {
+      vi.stubGlobal('process', { ...process, platform: 'darwin' });
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
     it('should scroll down at position via Swift', async () => {
       await controller.scroll({ coordinate: [500, 500], direction: 'down', amount: 3 });
 
@@ -164,6 +180,14 @@ describe('InputController', () => {
   });
 
   describe('drag (macOS - Swift/CGEvent)', () => {
+    beforeEach(() => {
+      vi.stubGlobal('process', { ...process, platform: 'darwin' });
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
     it('should drag via Swift with start and end coordinates', async () => {
       await controller.drag({
         startCoordinate: [100, 200],

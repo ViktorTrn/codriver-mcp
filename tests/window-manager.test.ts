@@ -47,6 +47,14 @@ describe('WindowManager', () => {
   });
 
   describe('macOS', () => {
+    beforeEach(() => {
+      vi.stubGlobal('process', { ...process, platform: 'darwin' });
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
     describe('listWindows', () => {
       it('should parse Swift/CoreGraphics JSON output into WindowInfo array', async () => {
         mockExecSuccess(JSON.stringify(sampleWindows));
