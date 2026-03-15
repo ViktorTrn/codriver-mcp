@@ -12,11 +12,11 @@ export class OcrEngine {
    * Extract text from a screen region using OCR.
    * Takes a screenshot of the region and runs Tesseract on it.
    */
-  async recognize(options: { region?: Region; language?: string } = {}): Promise<OcrResult> {
-    const { region, language = 'eng' } = options;
+  async recognize(options: { region?: Region; language?: string; screen?: number } = {}): Promise<OcrResult> {
+    const { region, language = 'eng', screen } = options;
 
-    // Capture screenshot (optionally cropped to region)
-    const screenshot = await screenCapture.capture({ region, format: 'png' });
+    // Capture screenshot (optionally cropped to region, from a specific display)
+    const screenshot = await screenCapture.capture({ region, format: 'png', screen });
     const imageBuffer = Buffer.from(screenshot.data, 'base64');
 
     const result = await Tesseract.recognize(imageBuffer, language);

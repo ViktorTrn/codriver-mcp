@@ -10,6 +10,9 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from '
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFile, execFileSync } from 'node:child_process';
+import { promisify } from 'node:util';
+
+const execFileAsync = promisify(execFile);
 import { createRequire } from 'node:module';
 import type { ScreenshotOptions, ScreenshotResult, DisplayInfo } from '../types/index.js';
 
@@ -146,6 +149,44 @@ export class ScreenCapture {
   async listDisplays(): Promise<DisplayInfo[]> {
     const displays = await screenshot.listDisplays();
     return displays.map((d) => ({ id: d.id, name: d.name }));
+  }
+
+  /**
+   * Get the global Quartz origin (x, y) of a display by its ID.
+   * Used to convert screen-relative coordinates to global coordinates for input events.
+   * macOS only - returns [0, 0] on other platforms.
+   */
+  async getDisplayOrigin(screenId: number): Promise<[number, number]> {
+    if (process.platform !== 'darwin') return [0, 0];
+
+    try {
+      // Use CoreGraphics to get display bounds in Quartz coordinates (origin at top-left)
+      const script = [
+        'import CoreGraphics',
+        'var count: UInt32 = 0',
+        'CGGetActiveDisplayList(0, nil, &count)',
+        'var ids = [CGDirectDisplayID](repeating: 0, count: Int(count))',
+        'CGGetActiveDisplayList(count, &ids, &count)',
+        'for id in ids {',
+        '    let b = CGDisplayBounds(id)',
+        '    print("\\(id),\\(Int(b.origin.x)),\\(Int(b.origin.y))")',
+        '}',
+      ].join('\n');
+
+      const { stdout } = await execFileAsync('swift', ['-e', script], { timeout: 10000 });
+
+      for (const line of stdout.trim().split('\n')) {
+        const parts = line.split(',');
+        if (parts.length === 3) {
+          const [id, x, y] = parts.map(Number);
+          if (id === screenId) return [x, y];
+        }
+      }
+    } catch {
+      // Fall through to default if Swift unavailable
+    }
+
+    return [0, 0];
   }
 }
 

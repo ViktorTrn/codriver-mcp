@@ -108,12 +108,16 @@ export function createServer(): McpServer {
           .boolean()
           .optional()
           .describe('Double-click instead of single click'),
+        screen: z
+          .number()
+          .optional()
+          .describe('Display ID (from desktop_displays). When set, x/y are relative to that display - matching coordinates from desktop_screenshot with the same screen param. On macOS, offsets are resolved automatically via CGDisplayBounds.'),
       },
       annotations: {
         destructiveHint: true,
       },
     },
-    async ({ x, y, ref, button, doubleClick }) => {
+    async ({ x, y, ref, button, doubleClick, screen }) => {
       let clickX: number;
       let clickY: number;
       let targetDesc: string;
@@ -144,6 +148,7 @@ export function createServer(): McpServer {
         coordinate: [clickX, clickY],
         button: button ?? 'left',
         doubleClick: doubleClick ?? false,
+        screen,
       });
 
       return {
@@ -260,13 +265,18 @@ export function createServer(): McpServer {
           .max(20)
           .optional()
           .describe('Number of scroll ticks. Default: 3'),
+        screen: z
+          .number()
+          .optional()
+          .describe('Display ID (from desktop_displays). When set, x/y are relative to that display - matching coordinates from desktop_screenshot with the same screen param.'),
       },
     },
-    async ({ x, y, direction, amount }) => {
+    async ({ x, y, direction, amount, screen }) => {
       await inputController.scroll({
         coordinate: [x, y],
         direction,
         amount: amount ?? 3,
+        screen,
       });
       return {
         content: [
@@ -568,17 +578,21 @@ export function createServer(): McpServer {
         width: z.number().optional().describe('Region width'),
         height: z.number().optional().describe('Region height'),
         language: z.string().optional().describe('OCR language code (e.g. "eng", "deu"). Default: eng.'),
+        screen: z
+          .number()
+          .optional()
+          .describe('Display ID (from desktop_displays). When set, OCR runs on that specific display instead of the primary screen. Use desktop_displays to list available monitors.'),
       },
       annotations: {
         readOnlyHint: true,
       },
     },
-    async ({ x, y, width, height, language }) => {
+    async ({ x, y, width, height, language, screen }) => {
       const region = (x != null && y != null && width != null && height != null)
         ? [x, y, width, height] as [number, number, number, number]
         : undefined;
 
-      const result = await ocrEngine.recognize({ region, language: language ?? 'eng' });
+      const result = await ocrEngine.recognize({ region, language: language ?? 'eng', screen });
 
       return {
         content: [{

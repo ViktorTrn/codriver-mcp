@@ -8,6 +8,7 @@ import robot from '@jitsi/robotjs';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { ClickOptions, TypeOptions, KeyOptions, ScrollOptions, DragOptions } from '../types/index.js';
+import { screenCapture } from './screen-capture.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -83,8 +84,14 @@ export class InputController {
    * Uses Swift/CGEvent for reliable mouse control on macOS Sequoia.
    */
   async click(options: ClickOptions): Promise<void> {
-    const { coordinate, button = 'left', doubleClick = false } = options;
-    const [x, y] = coordinate;
+    const { coordinate, button = 'left', doubleClick = false, screen } = options;
+    let [x, y] = coordinate;
+
+    if (screen != null) {
+      const [ox, oy] = await screenCapture.getDisplayOrigin(screen);
+      x += ox;
+      y += oy;
+    }
 
     if (process.platform === 'darwin') {
       await this.clickMacOS(x, y, button, doubleClick);
@@ -173,8 +180,14 @@ export class InputController {
    * Uses Swift/CGEvent on macOS for mouse positioning.
    */
   async scroll(options: ScrollOptions): Promise<void> {
-    const { coordinate, direction, amount = 3 } = options;
-    const [x, y] = coordinate;
+    const { coordinate, direction, amount = 3, screen } = options;
+    let [x, y] = coordinate;
+
+    if (screen != null) {
+      const [ox, oy] = await screenCapture.getDisplayOrigin(screen);
+      x += ox;
+      y += oy;
+    }
 
     if (process.platform === 'darwin') {
       await this.scrollMacOS(x, y, direction, amount);

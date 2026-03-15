@@ -49,6 +49,8 @@ export interface ClickOptions {
   coordinate: Coordinate;
   button?: MouseButton;
   doubleClick?: boolean;
+  /** If set, coordinate is relative to this display (matches desktop_screenshot screen param) */
+  screen?: number;
 }
 
 /** Type options */
@@ -68,6 +70,8 @@ export interface ScrollOptions {
   coordinate: Coordinate;
   direction: ScrollDirection;
   amount?: number;
+  /** If set, coordinate is relative to this display (matches desktop_screenshot screen param) */
+  screen?: number;
 }
 
 /** Drag options */
