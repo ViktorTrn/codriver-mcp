@@ -92,6 +92,15 @@ describe('ScreenCapture', () => {
     expect(result.mimeType).toBe('image/jpeg');
   });
 
+  it('should reject screen-relative coordinates where display bounds are unknown', async () => {
+    vi.stubGlobal('process', { ...process, platform: 'darwin' });
+    try {
+      await expect(capture.toDesktopCoordinate(0, [10, 10])).rejects.toThrow('only supported on Windows');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('should default to PNG format', async () => {
     const result = await capture.capture();
 

@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os';
 import { execFile, execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { windowManager } from './window-manager.js';
-import type { ScreenshotOptions, ScreenshotResult, DisplayInfo, Region } from '../types/index.js';
+import type { ScreenshotOptions, ScreenshotResult, DisplayInfo, Region, Coordinate } from '../types/index.js';
 
 const require = createRequire(import.meta.url);
 
@@ -230,6 +230,27 @@ export class ScreenCapture {
     }
     const displays = await screenshot.listDisplays();
     return displays.map((d) => ({ id: d.id, name: d.name }));
+  }
+
+  /**
+   * Convert a coordinate relative to a display (as in a full-size desktop_screenshot of that
+   * screen) into virtual desktop coordinates for input injection.
+   * Rejects points outside the display so a wrong guess never lands on a neighbouring monitor.
+   */
+  async toDesktopCoordinate(screenId: number, [x, y]: Coordinate): Promise<Coordinate> {
+    if (process.platform !== 'win32') {
+      throw new Error('Screen-relative coordinates are only supported on Windows.');
+    }
+    const monitor = (await listWindowsMonitors())[screenId];
+    if (!monitor) {
+      throw new Error(`Display ${screenId} not found. Use desktop_displays to list available monitors.`);
+    }
+    if (x < 0 || y < 0 || x >= monitor.width || y >= monitor.height) {
+      throw new Error(
+        `Coordinate (${x}, ${y}) is outside display ${screenId} (${monitor.width}x${monitor.height}).`
+      );
+    }
+    return [monitor.x + x, monitor.y + y];
   }
 
   /**

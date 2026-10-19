@@ -12,6 +12,7 @@ import { windowManager } from './modules/window-manager.js';
 import { accessibilityReader } from './modules/accessibility.js';
 import { appLauncher } from './modules/app-launcher.js';
 import { ocrEngine } from './modules/ocr-engine.js';
+import type { Coordinate } from './types/index.js';
 
 export function createServer(): McpServer {
   const server = new McpServer(
@@ -108,15 +109,29 @@ export function createServer(): McpServer {
           .boolean()
           .optional()
           .describe('Double-click instead of single click'),
+        screen: z
+          .number()
+          .optional()
+          .describe(
+            'Display ID from desktop_displays. If set, x/y are relative to that display, ' +
+            'i.e. pixel positions in an unscaled desktop_screenshot of it. Windows only.'
+          ),
       },
       annotations: {
         destructiveHint: true,
       },
     },
-    async ({ x, y, ref, button, doubleClick }) => {
+    async ({ x, y, ref, button, doubleClick, screen }) => {
       let clickX: number;
       let clickY: number;
       let targetDesc: string;
+
+      if (ref && screen != null) {
+        return {
+          content: [{ type: 'text' as const, text: 'Error: screen applies to x/y only; refs are already in desktop coordinates.' }],
+          isError: true,
+        };
+      }
 
       if (ref) {
         const center = accessibilityReader.getElementCenter(ref);
@@ -130,9 +145,12 @@ export function createServer(): McpServer {
         const el = accessibilityReader.getElementByRef(ref);
         targetDesc = `${ref} (${el?.role} "${el?.name}") at (${clickX}, ${clickY})`;
       } else if (x != null && y != null) {
-        clickX = x;
-        clickY = y;
-        targetDesc = `(${x}, ${y})`;
+        try {
+          [clickX, clickY] = await resolvePoint(screen, x, y);
+        } catch (error) {
+          return errorResult(error);
+        }
+        targetDesc = describePoint(screen, x, y, [clickX, clickY]);
       } else {
         return {
           content: [{ type: 'text' as const, text: 'Error: Provide either (x, y) coordinates or a ref.' }],
@@ -260,11 +278,24 @@ export function createServer(): McpServer {
           .max(20)
           .optional()
           .describe('Number of scroll ticks. Default: 3'),
+        screen: z
+          .number()
+          .optional()
+          .describe(
+            'Display ID from desktop_displays. If set, x/y are relative to that display, ' +
+            'i.e. pixel positions in an unscaled desktop_screenshot of it. Windows only.'
+          ),
       },
     },
-    async ({ x, y, direction, amount }) => {
+    async ({ x, y, direction, amount, screen }) => {
+      let point: Coordinate;
+      try {
+        point = await resolvePoint(screen, x, y);
+      } catch (error) {
+        return errorResult(error);
+      }
       await inputController.scroll({
-        coordinate: [x, y],
+        coordinate: point,
         direction,
         amount: amount ?? 3,
       });
@@ -272,7 +303,7 @@ export function createServer(): McpServer {
         content: [
           {
             type: 'text' as const,
-            text: `Scrolled ${direction} ${amount ?? 3}x at (${x}, ${y})`,
+            text: `Scrolled ${direction} ${amount ?? 3}x at ${describePoint(screen, x, y, point)}`,
           },
         ],
       };
@@ -473,13 +504,24 @@ export function createServer(): McpServer {
         endY: z.number().optional().describe('End Y coordinate. Required if no endRef.'),
         startRef: z.string().optional().describe('Start element ref (alternative to startX/startY).'),
         endRef: z.string().optional().describe('End element ref (alternative to endX/endY).'),
+        screen: z
+          .number()
+          .optional()
+          .describe(
+            'Display ID from desktop_displays. If set, startX/startY and endX/endY are relative to that display ' +
+            '(pixel positions in an unscaled desktop_screenshot of it); refs stay in desktop coordinates. Windows only.'
+          ),
       },
       annotations: {
         destructiveHint: true,
       },
     },
-    async ({ startX, startY, endX, endY, startRef, endRef }) => {
+    async ({ startX, startY, endX, endY, startRef, endRef, screen }) => {
       let sx: number, sy: number, ex: number, ey: number;
+
+      if (startRef && endRef && screen != null) {
+        return { content: [{ type: 'text' as const, text: 'Error: screen applies to coordinates only; refs are already in desktop coordinates.' }], isError: true };
+      }
 
       // Resolve start position
       if (startRef) {
@@ -489,7 +531,11 @@ export function createServer(): McpServer {
         }
         [sx, sy] = center;
       } else if (startX != null && startY != null) {
-        sx = startX; sy = startY;
+        try {
+          [sx, sy] = await resolvePoint(screen, startX, startY);
+        } catch (error) {
+          return errorResult(error);
+        }
       } else {
         return { content: [{ type: 'text' as const, text: 'Error: Provide start coordinates (startX/startY) or startRef.' }], isError: true };
       }
@@ -502,7 +548,11 @@ export function createServer(): McpServer {
         }
         [ex, ey] = center;
       } else if (endX != null && endY != null) {
-        ex = endX; ey = endY;
+        try {
+          [ex, ey] = await resolvePoint(screen, endX, endY);
+        } catch (error) {
+          return errorResult(error);
+        }
       } else {
         return { content: [{ type: 'text' as const, text: 'Error: Provide end coordinates (endX/endY) or endRef.' }], isError: true };
       }
@@ -620,6 +670,22 @@ export function createServer(): McpServer {
   );
 
   return server;
+}
+
+/** Resolve x/y to desktop coordinates; with screen set they are relative to that display */
+async function resolvePoint(screen: number | undefined, x: number, y: number): Promise<Coordinate> {
+  return screen == null ? [x, y] : screenCapture.toDesktopCoordinate(screen, [x, y]);
+}
+
+/** Describe a point for tool output, including the conversion when screen was used */
+function describePoint(screen: number | undefined, x: number, y: number, [dx, dy]: Coordinate): string {
+  return screen == null ? `(${x}, ${y})` : `(${x}, ${y}) on screen ${screen} = desktop (${dx}, ${dy})`;
+}
+
+/** Turn a thrown error into an MCP error result */
+function errorResult(error: unknown) {
+  const msg = error instanceof Error ? error.message : String(error);
+  return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true };
 }
 
 /** Count total elements in a tree */

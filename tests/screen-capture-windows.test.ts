@@ -171,6 +171,33 @@ describe('ScreenCapture on Windows', () => {
     });
   });
 
+  describe('toDesktopCoordinate', () => {
+    it('should add the monitor origin to screen-relative coordinates', async () => {
+      mockExe();
+
+      await expect(capture.toDesktopCoordinate(0, [100, 50])).resolves.toEqual([3940, 781]);
+    });
+
+    it('should handle monitors with negative coordinates', async () => {
+      mockExe();
+
+      await expect(capture.toDesktopCoordinate(2, [840, 1097])).resolves.toEqual([-3000, 1000]);
+    });
+
+    it('should reject coordinates outside the monitor', async () => {
+      mockExe();
+
+      await expect(capture.toDesktopCoordinate(0, [1920, 10])).rejects.toThrow('outside display 0');
+      await expect(capture.toDesktopCoordinate(0, [-1, 10])).rejects.toThrow('outside display 0');
+    });
+
+    it('should throw for an unknown display index', async () => {
+      mockExe();
+
+      await expect(capture.toDesktopCoordinate(7, [0, 0])).rejects.toThrow('Display 7 not found');
+    });
+  });
+
   it('should capture the primary display without /d by default', async () => {
     mockExe();
 
