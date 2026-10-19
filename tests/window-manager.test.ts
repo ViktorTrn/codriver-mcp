@@ -154,6 +154,15 @@ describe('WindowManager', () => {
         );
       });
 
+      it('should switch PowerShell output to UTF-8 so umlauts survive', async () => {
+        mockExecSuccess('[]');
+
+        await wm.listWindows();
+
+        const args = mockExecFile.mock.calls[0]![1] as string[];
+        expect(args[args.length - 1]).toMatch(/^\[Console\]::OutputEncoding = New-Object System\.Text\.UTF8Encoding \$false/);
+      });
+
       it('should return empty array for no windows', async () => {
         mockExecSuccess('[]');
 

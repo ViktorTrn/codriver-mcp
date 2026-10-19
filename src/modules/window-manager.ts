@@ -7,17 +7,11 @@
 
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { PS_FLAGS, PS_UTF8_OUTPUT, escapePowerShell } from './powershell.js';
 import type { WindowInfo } from '../types/index.js';
 
 const execFileAsync = promisify(execFile);
 
-/** PowerShell flags for safe, non-interactive execution */
-const PS_FLAGS = ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command'];
-
-/** Escape a string for use inside PowerShell single-quoted strings */
-function escapePowerShell(str: string): string {
-  return str.replace(/'/g, "''");
-}
 
 export class WindowManager {
   /**
@@ -279,7 +273,7 @@ Write-Output ([WindowEnum]::ListWindows())
 `;
 
     try {
-      const { stdout } = await execFileAsync('powershell', [...PS_FLAGS, script], {
+      const { stdout } = await execFileAsync('powershell', [...PS_FLAGS, PS_UTF8_OUTPUT + script], {
         timeout: 30000,
       });
 
@@ -343,7 +337,7 @@ if ($proc) {
 `;
 
     try {
-      const { stdout } = await execFileAsync('powershell', [...PS_FLAGS, script], {
+      const { stdout } = await execFileAsync('powershell', [...PS_FLAGS, PS_UTF8_OUTPUT + script], {
         timeout: 10000,
       });
 

@@ -6,16 +6,10 @@
 
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { PS_FLAGS, PS_UTF8_OUTPUT, escapePowerShell } from './powershell.js';
 
 const execFileAsync = promisify(execFile);
 
-/** PowerShell flags for safe, non-interactive execution */
-const PS_FLAGS = ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command'];
-
-/** Escape a string for use inside PowerShell single-quoted strings */
-function escapePowerShell(str: string): string {
-  return str.replace(/'/g, "''");
-}
 
 export class AppLauncher {
   /**
@@ -103,7 +97,7 @@ try {
 }`;
 
     try {
-      await execFileAsync('powershell', [...PS_FLAGS, script], { timeout: 15000 });
+      await execFileAsync('powershell', [...PS_FLAGS, PS_UTF8_OUTPUT + script], { timeout: 15000 });
       return `Launched: ${appName}`;
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
@@ -116,7 +110,7 @@ try {
     const script = `Stop-Process -Name '${safe}' -ErrorAction Stop`;
 
     try {
-      await execFileAsync('powershell', [...PS_FLAGS, script], { timeout: 10000 });
+      await execFileAsync('powershell', [...PS_FLAGS, PS_UTF8_OUTPUT + script], { timeout: 10000 });
       return `Quit: ${appName}`;
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
@@ -129,7 +123,7 @@ try {
     const script = `if (Get-Process -Name '${safe}' -ErrorAction SilentlyContinue) { Write-Output 'true' } else { Write-Output 'false' }`;
 
     try {
-      const { stdout } = await execFileAsync('powershell', [...PS_FLAGS, script], { timeout: 5000 });
+      const { stdout } = await execFileAsync('powershell', [...PS_FLAGS, PS_UTF8_OUTPUT + script], { timeout: 5000 });
       return stdout.trim() === 'true';
     } catch {
       return false;

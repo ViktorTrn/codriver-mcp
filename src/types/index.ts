@@ -80,6 +80,11 @@ export interface DragOptions {
 export interface DisplayInfo {
   id: number;
   name: string;
+  /** Bounds in virtual desktop coordinates (Windows only, may be negative) */
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
 }
 
 /** OCR result */

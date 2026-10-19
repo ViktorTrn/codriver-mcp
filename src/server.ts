@@ -608,7 +608,11 @@ export function createServer(): McpServer {
       if (displays.length === 0) {
         return { content: [{ type: 'text' as const, text: 'No displays detected.' }] };
       }
-      const lines = displays.map((d) => `[${d.id}] ${d.name}`);
+      const lines = displays.map((d) =>
+        d.width != null
+          ? `[${d.id}] ${d.name} ${d.width}x${d.height} at (${d.x}, ${d.y})`
+          : `[${d.id}] ${d.name}`
+      );
       return {
         content: [{ type: 'text' as const, text: `Displays:\n${lines.join('\n')}` }],
       };

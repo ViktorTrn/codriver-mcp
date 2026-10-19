@@ -11,7 +11,8 @@ import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFile, execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
-import type { ScreenshotOptions, ScreenshotResult, DisplayInfo } from '../types/index.js';
+import { windowManager } from './window-manager.js';
+import type { ScreenshotOptions, ScreenshotResult, DisplayInfo, Region } from '../types/index.js';
 
 const require = createRequire(import.meta.url);
 
@@ -59,20 +60,73 @@ function ensureWindowsExe(): string {
 }
 
 /**
- * Capture screenshot on Windows by calling the exe directly.
+ * Run the screenCapture exe directly and return its stdout.
  */
-function captureWindows(imgPath: string): Promise<void> {
+function runWindowsExe(args: string[]): Promise<string> {
   const exePath = ensureWindowsExe();
   return new Promise((resolve, reject) => {
-    execFile(exePath, [imgPath], {
+    execFile(exePath, args, {
       cwd: join(tmpdir(), 'screenCapture'),
       windowsHide: true,
       timeout: 30000,
-    }, (err) => {
+    }, (err, stdout) => {
       if (err) reject(err);
-      else resolve();
+      else resolve(String(stdout));
     });
   });
+}
+
+/**
+ * Capture screenshot on Windows by calling the exe directly.
+ * Without deviceName the exe captures the primary display.
+ */
+async function captureWindows(imgPath: string, deviceName?: string): Promise<void> {
+  const args = deviceName ? [imgPath, '/d', deviceName] : [imgPath];
+  const stdout = await runWindowsExe(args);
+  // The exe silently falls back to the primary display if the device name does not match
+  if (stdout.includes('Unable to capture image')) {
+    throw new Error(`Failed to capture display ${deviceName}`);
+  }
+}
+
+/** Monitor as reported by `screenCapture.exe /list` (virtual desktop coordinates) */
+interface WindowsMonitor {
+  name: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * List monitors on Windows. Output lines: `\\.\DISPLAY1;top;right;bottom;left;dpiScale`.
+ */
+async function listWindowsMonitors(): Promise<WindowsMonitor[]> {
+  const stdout = await runWindowsExe(['/list']);
+  return stdout
+    .split(/\r?\n/)
+    .map((line) => line.trim().split(';'))
+    .filter((parts) => parts.length >= 5 && parts[0].startsWith('\\\\.\\'))
+    .map(([name, top, right, bottom, left]) => ({
+      name: name!,
+      x: Number(left),
+      y: Number(top),
+      width: Number(right) - Number(left),
+      height: Number(bottom) - Number(top),
+    }));
+}
+
+/** Intersection of two rectangles, or null if they do not overlap */
+function intersect(
+  a: { x: number; y: number; width: number; height: number },
+  b: { x: number; y: number; width: number; height: number },
+): { x: number; y: number; width: number; height: number } | null {
+  const x = Math.max(a.x, b.x);
+  const y = Math.max(a.y, b.y);
+  const right = Math.min(a.x + a.width, b.x + b.width);
+  const bottom = Math.min(a.y + a.height, b.y + b.height);
+  if (right <= x || bottom <= y) return null;
+  return { x, y, width: right - x, height: bottom - y };
 }
 
 export class ScreenCapture {
@@ -81,14 +135,32 @@ export class ScreenCapture {
    * Uses screenshot-desktop for capture and sharp for processing.
    */
   async capture(options: ScreenshotOptions = {}): Promise<ScreenshotResult> {
-    const { scale = 1.0, region, format = 'png', quality = 80, screen: screenId } = options;
+    const { scale = 1.0, format = 'png', quality = 80, screen: screenId, windowTitle } = options;
+    let region = options.region;
 
     let buffer: Buffer;
 
     if (process.platform === 'win32') {
       // Direct exe call - bypasses bat path resolution issues
+      let deviceName: string | undefined;
+      if (windowTitle != null) {
+        // Capture the monitor holding (most of) the window, then crop to the window
+        const { monitor, crop } = await this.locateWindowWindows(windowTitle);
+        deviceName = monitor.name;
+        region = region
+          ? [crop[0] + region[0], crop[1] + region[1], region[2], region[3]]
+          : crop;
+      } else if (screenId != null) {
+        const monitors = await listWindowsMonitors();
+        const monitor = monitors[screenId];
+        if (!monitor) {
+          throw new Error(`Display ${screenId} not found. Use desktop_displays to list available monitors.`);
+        }
+        deviceName = monitor.name;
+      }
+
       const imgPath = join(tmpdir(), `codriver_screenshot_${Date.now()}.png`);
-      await captureWindows(imgPath);
+      await captureWindows(imgPath, deviceName);
       buffer = readFileSync(imgPath);
       unlinkSync(imgPath);
     } else {
@@ -142,10 +214,57 @@ export class ScreenCapture {
 
   /**
    * List all available displays/monitors.
+   * On Windows the id is the index to pass as desktop_screenshot's screen parameter.
    */
   async listDisplays(): Promise<DisplayInfo[]> {
+    if (process.platform === 'win32') {
+      const monitors = await listWindowsMonitors();
+      return monitors.map((m, index) => ({
+        id: index,
+        name: m.name,
+        x: m.x,
+        y: m.y,
+        width: m.width,
+        height: m.height,
+      }));
+    }
     const displays = await screenshot.listDisplays();
     return displays.map((d) => ({ id: d.id, name: d.name }));
+  }
+
+  /**
+   * Find a window by title (case-insensitive substring) and the monitor showing most of it.
+   * Returns the crop region relative to that monitor's top-left corner.
+   */
+  private async locateWindowWindows(
+    windowTitle: string,
+  ): Promise<{ monitor: WindowsMonitor; crop: Region }> {
+    const needle = windowTitle.toLowerCase();
+    const matches = (await windowManager.listWindows())
+      .filter((w) => w.title.toLowerCase().includes(needle));
+    if (matches.length === 0) {
+      throw new Error(`Window with title containing "${windowTitle}" not found`);
+    }
+
+    const monitors = await listWindowsMonitors();
+    for (const win of matches) {
+      // Pick the monitor with the largest overlap; minimized windows (-32000) overlap none
+      let best: { monitor: WindowsMonitor; area: { x: number; y: number; width: number; height: number } } | null = null;
+      for (const monitor of monitors) {
+        const area = intersect(win, monitor);
+        if (area && (!best || area.width * area.height > best.area.width * best.area.height)) {
+          best = { monitor, area };
+        }
+      }
+      if (best) {
+        const { monitor, area } = best;
+        return {
+          monitor,
+          crop: [area.x - monitor.x, area.y - monitor.y, area.width, area.height],
+        };
+      }
+    }
+    throw new Error(`Window "${matches[0]!.title}" is not visible on any display (minimized?)`);
   }
 }
 

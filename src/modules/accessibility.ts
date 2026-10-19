@@ -7,17 +7,11 @@
 
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { PS_FLAGS, PS_UTF8_OUTPUT, escapePowerShell } from './powershell.js';
 import type { UIElement, ReadUIOptions, RawUIElement, Region } from '../types/index.js';
 
 const execFileAsync = promisify(execFile);
 
-/** PowerShell flags for safe, non-interactive execution */
-const PS_FLAGS = ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command'];
-
-/** Escape a string for use inside PowerShell single-quoted strings */
-function escapePowerShell(str: string): string {
-  return str.replace(/'/g, "''");
-}
 
 /** Interactive roles that are typically actionable (macOS AX + Windows UIA) */
 const INTERACTIVE_ROLES = new Set([
@@ -315,7 +309,7 @@ Write-Output ([UIAReader]::ReadTree('${safeTitle}', ${maxDepth}))
 `;
 
     try {
-      const { stdout } = await execFileAsync('powershell', [...PS_FLAGS, script], {
+      const { stdout } = await execFileAsync('powershell', [...PS_FLAGS, PS_UTF8_OUTPUT + script], {
         maxBuffer: 10 * 1024 * 1024,
         timeout: 60000,
       });
