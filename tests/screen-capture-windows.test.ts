@@ -1,18 +1,19 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-// Mock child_process: the screenCapture exe is called via execFile
+// Mock child_process: the capture runs as a PowerShell script via execFile
 vi.mock('node:child_process', () => ({
   execFile: vi.fn(),
   execFileSync: vi.fn(),
 }));
 
-// Pretend the compiled exe already exists and the capture file is readable
+// Pretend the capture file is readable
 vi.mock('node:fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs')>();
   return {
     ...actual,
     existsSync: vi.fn(() => true),
     readFileSync: vi.fn(() => Buffer.from('png')),
+    writeFileSync: vi.fn(),
     unlinkSync: vi.fn(),
   };
 });
@@ -36,7 +37,8 @@ vi.mock('sharp', () => ({
   default: vi.fn(() => mockSharpInstance),
 }));
 
-import { execFile } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
+import { writeFileSync } from 'node:fs';
 import { windowManager } from '../src/modules/window-manager.js';
 import { ScreenCapture } from '../src/modules/screen-capture.js';
 
@@ -51,16 +53,26 @@ const LIST_OUTPUT = [
   '',
 ].join('\r\n');
 
-/** Answer `/list` with LIST_OUTPUT and any capture call with captureStdout */
-function mockExe(captureStdout = 'Taking a capture of the whole screen') {
-  mockExecFile.mockImplementation(((_file: string, args: string[], _opts: unknown, cb: Function) => {
-    cb(null, args[0] === '/list' ? LIST_OUTPUT : captureStdout, '');
+/** The PowerShell script passed to execFile (last argument after the flags) */
+function scriptOf(call: unknown[]): string {
+  return (call[1] as string[]).at(-1)!;
+}
+
+const isList = (call: unknown[]) => scriptOf(call).includes('[CoDriverScreen]::List()');
+
+/** Answer the monitor list with LIST_OUTPUT and any capture call with captureStdout */
+function mockPowerShell(captureStdout = '') {
+  mockExecFile.mockImplementation(((...call: unknown[]) => {
+    const cb = call.at(-1) as Function;
+    cb(null, isList(call) ? LIST_OUTPUT : captureStdout, '');
   }) as never);
 }
 
-function captureArgs(): string[] {
-  const call = mockExecFile.mock.calls.find((c) => (c[1] as string[])[0] !== '/list');
-  return call![1] as string[];
+/** The capture call: [CoDriverScreen]::Capture('<path>', '<device>') */
+function captureCall(): { path: string; device: string } {
+  const call = mockExecFile.mock.calls.find((c) => !isList(c));
+  const match = /\[CoDriverScreen\]::Capture\('((?:[^']|'')*)', '((?:[^']|'')*)'\)/.exec(scriptOf(call!));
+  return { path: match![1]!, device: match![2]! };
 }
 
 function win(title: string, x: number, y: number, width: number, height: number) {
@@ -85,8 +97,8 @@ describe('ScreenCapture on Windows', () => {
   });
 
   describe('listDisplays', () => {
-    it('should parse monitors from the exe directly, including negative coordinates', async () => {
-      mockExe();
+    it('should parse monitors from PowerShell, including negative coordinates', async () => {
+      mockPowerShell();
 
       const displays = await capture.listDisplays();
 
@@ -95,46 +107,89 @@ describe('ScreenCapture on Windows', () => {
         { id: 1, name: '\\\\.\\DISPLAY3', x: 0, y: 0, width: 3840, height: 2160 },
         { id: 2, name: '\\\\.\\DISPLAY4', x: -3840, y: -97, width: 3840, height: 2160 },
       ]);
-      expect(mockExecFile.mock.calls[0]![0]).toMatch(/screenCapture_1\.3\.2\.exe$/);
-      expect(mockExecFile.mock.calls[0]![1]).toEqual(['/list']);
+    });
+  });
+
+  // ThreatDown quarantines screenshot-desktop's screenCapture bat as RiskWare.ScreenCapture
+  describe('antivirus-safe capture', () => {
+    it('should run hidden PowerShell instead of a helper exe', async () => {
+      mockPowerShell();
+
+      await capture.capture();
+
+      for (const call of mockExecFile.mock.calls) {
+        expect(call[0]).toBe('powershell');
+        expect(call[2]).toEqual(expect.objectContaining({ windowsHide: true }));
+      }
+      expect(captureCall().device).toBe('');
+    });
+
+    it('should neither write nor compile helper files', async () => {
+      mockPowerShell();
+
+      await capture.capture({ screen: 1 });
+      await capture.listDisplays();
+
+      expect(writeFileSync).not.toHaveBeenCalled();
+      expect(execFileSync).not.toHaveBeenCalled();
+    });
+
+    it('should make the capture DPI-aware like the former exe (dpiAware True/PM)', async () => {
+      mockPowerShell();
+
+      await capture.listDisplays();
+
+      expect(scriptOf(mockExecFile.mock.calls[0]!)).toContain('SetThreadDpiAwarenessContext');
+    });
+
+    it('should escape quotes in the capture path', async () => {
+      vi.stubEnv('TEMP', "C:\\Users\\O'Brien\\Temp");
+      vi.stubEnv('TMP', "C:\\Users\\O'Brien\\Temp");
+      vi.stubEnv('TMPDIR', "/tmp/O'Brien"); // CI also runs this file on macOS
+      mockPowerShell();
+
+      await capture.capture();
+
+      expect(captureCall().path).toContain("O''Brien");
+      vi.unstubAllEnvs();
     });
   });
 
   describe('capture with windowTitle', () => {
     it('should capture the monitor holding the window and crop to it', async () => {
-      mockExe();
+      mockPowerShell();
       mockListWindows.mockResolvedValue([win('Labelwin (IBT Ingenierbüro Trncik)', 3840, 731, 321, 556)]);
 
       const result = await capture.capture({ windowTitle: 'labelwin (ibt' });
 
-      expect(captureArgs().slice(1)).toEqual(['/d', '\\\\.\\DISPLAY2']);
+      expect(captureCall().device).toBe('\\\\.\\DISPLAY2');
       expect(mockSharpInstance.extract).toHaveBeenCalledWith({ left: 0, top: 0, width: 321, height: 556 });
       expect(result.width).toBe(321);
       expect(result.height).toBe(556);
     });
 
     it('should handle monitors with negative coordinates', async () => {
-      mockExe();
+      mockPowerShell();
       mockListWindows.mockResolvedValue([win('Fällige Tätigkeiten', -3840, 959, 1920, 1056)]);
 
       await capture.capture({ windowTitle: 'Fällige' });
 
-      expect(captureArgs().slice(1)).toEqual(['/d', '\\\\.\\DISPLAY4']);
+      expect(captureCall().device).toBe('\\\\.\\DISPLAY4');
       expect(mockSharpInstance.extract).toHaveBeenCalledWith({ left: 0, top: 1056, width: 1920, height: 1056 });
     });
 
     it('should clip a window that extends beyond its monitor', async () => {
-      mockExe();
+      mockPowerShell();
       mockListWindows.mockResolvedValue([win('Maximized', -8, -8, 3856, 2176)]);
 
       await capture.capture({ windowTitle: 'Maximized' });
 
-      expect(captureArgs().slice(1)).toEqual(['/d', '\\\\.\\DISPLAY3']);
+      expect(captureCall().device).toBe('\\\\.\\DISPLAY3');
       expect(mockSharpInstance.extract).toHaveBeenCalledWith({ left: 0, top: 0, width: 3840, height: 2160 });
     });
 
     it('should throw instead of falling back when the window is not found', async () => {
-      mockExe();
+      mockPowerShell();
       mockListWindows.mockResolvedValue([win('Other', 0, 0, 100, 100)]);
 
       await expect(capture.capture({ windowTitle: 'Labelwin' })).rejects.toThrow('not found');
@@ -142,7 +197,7 @@ describe('ScreenCapture on Windows', () => {
     });
 
     it('should throw for a minimized window', async () => {
-      mockExe();
+      mockPowerShell();
       mockListWindows.mockResolvedValue([win('Firefox', -32000, -32000, 160, 28)]);
 
       await expect(capture.capture({ windowTitle: 'Firefox' })).rejects.toThrow('not visible');
@@ -151,21 +206,21 @@ describe('ScreenCapture on Windows', () => {
 
   describe('capture with screen', () => {
     it('should capture the display with the given index', async () => {
-      mockExe();
+      mockPowerShell();
 
       await capture.capture({ screen: 2 });
 
-      expect(captureArgs().slice(1)).toEqual(['/d', '\\\\.\\DISPLAY4']);
+      expect(captureCall().device).toBe('\\\\.\\DISPLAY4');
     });
 
     it('should throw for an unknown display index', async () => {
-      mockExe();
+      mockPowerShell();
 
       await expect(capture.capture({ screen: 7 })).rejects.toThrow('Display 7 not found');
     });
 
-    it('should throw when the exe falls back to the main display', async () => {
-      mockExe('Unable to capture image... using main display');
+    it('should throw when the display cannot be captured', async () => {
+      mockPowerShell('Unable to capture image');
 
       await expect(capture.capture({ screen: 0 })).rejects.toThrow('Failed to capture display');
     });
@@ -173,36 +228,36 @@ describe('ScreenCapture on Windows', () => {
 
   describe('toDesktopCoordinate', () => {
     it('should add the monitor origin to screen-relative coordinates', async () => {
-      mockExe();
+      mockPowerShell();
 
       await expect(capture.toDesktopCoordinate(0, [100, 50])).resolves.toEqual([3940, 781]);
     });
 
     it('should handle monitors with negative coordinates', async () => {
-      mockExe();
+      mockPowerShell();
 
       await expect(capture.toDesktopCoordinate(2, [840, 1097])).resolves.toEqual([-3000, 1000]);
     });
 
     it('should reject coordinates outside the monitor', async () => {
-      mockExe();
+      mockPowerShell();
 
       await expect(capture.toDesktopCoordinate(0, [1920, 10])).rejects.toThrow('outside display 0');
       await expect(capture.toDesktopCoordinate(0, [-1, 10])).rejects.toThrow('outside display 0');
     });
 
     it('should throw for an unknown display index', async () => {
-      mockExe();
+      mockPowerShell();
 
       await expect(capture.toDesktopCoordinate(7, [0, 0])).rejects.toThrow('Display 7 not found');
     });
   });
 
-  it('should capture the primary display without /d by default', async () => {
-    mockExe();
+  it('should capture the primary display by default', async () => {
+    mockPowerShell();
 
     await capture.capture();
 
-    expect(captureArgs()).toHaveLength(1);
+    expect(captureCall().device).toBe('');
   });
 });

@@ -152,7 +152,7 @@ describe('AppLauncher', () => {
         expect(mockExecFile).toHaveBeenCalledWith(
           'powershell',
           expect.arrayContaining(['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command']),
-          expect.any(Object),
+          expect.objectContaining({ windowsHide: true }),
           expect.any(Function)
         );
       });

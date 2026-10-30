@@ -310,6 +310,7 @@ Write-Output ([UIAReader]::ReadTree('${safeTitle}', ${maxDepth}))
 
     try {
       const { stdout } = await execFileAsync('powershell', [...PS_FLAGS, PS_UTF8_OUTPUT + script], {
+        windowsHide: true,
         maxBuffer: 10 * 1024 * 1024,
         timeout: 60000,
       });

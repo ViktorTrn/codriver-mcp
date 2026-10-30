@@ -1,72 +1,144 @@
 /**
  * ScreenCapture Module
- * Handles desktop and window screenshots using screenshot-desktop + sharp.
- * On Windows, calls the screenCapture exe directly to work around bat path issues.
+ * Handles desktop and window screenshots using screenshot-desktop (macOS) + sharp.
+ * On Windows, captures via PowerShell + GDI instead: screenshot-desktop's screenCapture bat
+ * is quarantined by antivirus software (ThreatDown/Malwarebytes: RiskWare.ScreenCapture).
  */
 
 import screenshot from 'screenshot-desktop';
 import sharp from 'sharp';
-import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { readFileSync, unlinkSync } from 'node:fs';
+import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { execFile, execFileSync } from 'node:child_process';
-import { createRequire } from 'node:module';
+import { execFile } from 'node:child_process';
 import { windowManager } from './window-manager.js';
+import { PS_FLAGS, PS_UTF8_OUTPUT, escapePowerShell } from './powershell.js';
 import type { ScreenshotOptions, ScreenshotResult, DisplayInfo, Region, Coordinate } from '../types/index.js';
 
-const require = createRequire(import.meta.url);
-
 /**
- * Ensure the screenCapture exe exists in temp on Windows.
- * screenshot-desktop ships a polyglot bat/C# file that self-compiles via .NET csc.exe.
- * We ensure compilation happened, then call the exe directly (bypassing bat path issues).
+ * Monitor enumeration and capture in C# 5 (Windows PowerShell 5.1 Add-Type).
+ * Mirrors screenshot-desktop's screenCapture.exe: per-monitor DPI aware (manifest True/PM),
+ * so bounds are physical pixels matching the input coordinates, and the same `/list` format.
  */
-function ensureWindowsExe(): string {
-  const tmpDir = join(tmpdir(), 'screenCapture');
-  const exePath = join(tmpDir, 'screenCapture_1.3.2.exe');
+const SCREEN_TYPE = `
+Add-Type -ReferencedAssemblies System.Drawing -TypeDefinition @'
+using System;
+using System.Collections.Generic;
+using System.Drawing;
+using System.Drawing.Imaging;
+using System.Globalization;
+using System.Runtime.InteropServices;
 
-  if (existsSync(exePath)) return exePath;
+public static class CoDriverScreen {
+    [DllImport("user32.dll")]
+    static extern IntPtr SetThreadDpiAwarenessContext(IntPtr dpiContext);
 
-  // Copy bat + manifest from screenshot-desktop to temp for self-compilation
-  if (!existsSync(tmpDir)) mkdirSync(tmpDir, { recursive: true });
+    [DllImport("user32.dll")]
+    static extern bool SetProcessDPIAware();
 
-  const pkgDir = dirname(require.resolve('screenshot-desktop'));
-  const srcBat = join(pkgDir, 'lib', 'win32', 'screenCapture_1.3.2.bat');
-  const srcManifest = join(pkgDir, 'lib', 'win32', 'app.manifest');
+    [DllImport("user32.dll")]
+    static extern bool EnumDisplayMonitors(IntPtr hdc, IntPtr lprcClip, MonitorEnumProc lpfnEnum, IntPtr dwData);
 
-  const dstBat = join(tmpDir, 'screenCapture_1.3.2.bat');
-  const dstManifest = join(tmpDir, 'app.manifest');
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFOEX lpmi);
 
-  if (!existsSync(dstBat)) writeFileSync(dstBat, readFileSync(srcBat));
-  if (!existsSync(dstManifest)) writeFileSync(dstManifest, readFileSync(srcManifest));
+    [DllImport("shcore.dll")]
+    static extern int GetDpiForMonitor(IntPtr hMonitor, int dpiType, out uint dpiX, out uint dpiY);
 
-  // Find .NET Framework csc.exe and compile the C# code directly
-  const cscPaths = [
-    join(process.env.SystemRoot ?? 'C:\\Windows', 'Microsoft.NET', 'Framework', 'v4.0.30319', 'csc.exe'),
-    join(process.env.SystemRoot ?? 'C:\\Windows', 'Microsoft.NET', 'Framework', 'v3.5', 'csc.exe'),
-  ];
-  const csc = cscPaths.find(p => existsSync(p));
-  if (csc) {
-    execFileSync(csc, [
-      '/nologo',
-      '/r:Microsoft.VisualBasic.dll',
-      `/win32manifest:${dstManifest}`,
-      `/out:${exePath}`,
-      dstBat,
-    ], { cwd: tmpDir, windowsHide: true, stdio: 'ignore' });
-  }
+    delegate bool MonitorEnumProc(IntPtr hMonitor, IntPtr hdcMonitor, ref RECT lprcMonitor, IntPtr dwData);
 
-  return exePath;
+    [StructLayout(LayoutKind.Sequential)]
+    struct RECT { public int Left, Top, Right, Bottom; }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    struct MONITORINFOEX {
+        public int Size;
+        public RECT Monitor;
+        public RECT Work;
+        public uint Flags;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
+        public string DeviceName;
+    }
+
+    const uint MONITORINFOF_PRIMARY = 1;
+
+    class Monitor {
+        public string Name;
+        public RECT Bounds;
+        public bool Primary;
+        public float DpiScale;
+    }
+
+    static void BecomeDpiAware() {
+        try {
+            // PER_MONITOR_AWARE_V2 (Win10 1703+), then PER_MONITOR_AWARE (Win10 1607+)
+            if (SetThreadDpiAwarenessContext(new IntPtr(-4)) != IntPtr.Zero) return;
+            if (SetThreadDpiAwarenessContext(new IntPtr(-3)) != IntPtr.Zero) return;
+        } catch (EntryPointNotFoundException) { }
+        SetProcessDPIAware();
+    }
+
+    static List<Monitor> GetMonitors() {
+        var monitors = new List<Monitor>();
+        EnumDisplayMonitors(IntPtr.Zero, IntPtr.Zero, (IntPtr hMonitor, IntPtr hdc, ref RECT rc, IntPtr data) => {
+            var mi = new MONITORINFOEX();
+            mi.Size = Marshal.SizeOf(typeof(MONITORINFOEX));
+            if (!GetMonitorInfo(hMonitor, ref mi)) return true;
+            uint dpiX = 96, dpiY = 96;
+            try { GetDpiForMonitor(hMonitor, 0, out dpiX, out dpiY); } catch (DllNotFoundException) { }
+            monitors.Add(new Monitor {
+                Name = mi.DeviceName,
+                Bounds = mi.Monitor,
+                Primary = (mi.Flags & MONITORINFOF_PRIMARY) != 0,
+                DpiScale = dpiX / 96f,
+            });
+            return true;
+        }, IntPtr.Zero);
+        return monitors;
+    }
+
+    // Lines: name;top;right;bottom;left;dpiScale
+    public static string List() {
+        BecomeDpiAware();
+        var lines = new List<string>();
+        foreach (var m in GetMonitors()) {
+            lines.Add(string.Format(CultureInfo.InvariantCulture, "{0};{1};{2};{3};{4};{5}",
+                m.Name, m.Bounds.Top, m.Bounds.Right, m.Bounds.Bottom, m.Bounds.Left, m.DpiScale));
+        }
+        return string.Join("\\n", lines);
+    }
+
+    // Capture one monitor (primary if deviceName is empty) to a PNG file; false if not found
+    public static bool Capture(string path, string deviceName) {
+        BecomeDpiAware();
+        Monitor target = null;
+        foreach (var m in GetMonitors()) {
+            bool match = deviceName.Length == 0
+                ? m.Primary
+                : string.Equals(m.Name, deviceName, StringComparison.OrdinalIgnoreCase);
+            if (match) { target = m; break; }
+        }
+        if (target == null) return false;
+
+        int width = target.Bounds.Right - target.Bounds.Left;
+        int height = target.Bounds.Bottom - target.Bounds.Top;
+        using (var bmp = new Bitmap(width, height, PixelFormat.Format32bppRgb))
+        using (var g = Graphics.FromImage(bmp)) {
+            g.CopyFromScreen(target.Bounds.Left, target.Bounds.Top, 0, 0, new Size(width, height));
+            bmp.Save(path, ImageFormat.Png);
+        }
+        return true;
+    }
 }
+'@
+`;
 
 /**
- * Run the screenCapture exe directly and return its stdout.
+ * Run a call against the CoDriverScreen type in a hidden PowerShell and return its stdout.
  */
-function runWindowsExe(args: string[]): Promise<string> {
-  const exePath = ensureWindowsExe();
+function runScreenScript(call: string): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile(exePath, args, {
-      cwd: join(tmpdir(), 'screenCapture'),
+    execFile('powershell', [...PS_FLAGS, PS_UTF8_OUTPUT + SCREEN_TYPE + call], {
       windowsHide: true,
       timeout: 30000,
     }, (err, stdout) => {
@@ -77,19 +149,21 @@ function runWindowsExe(args: string[]): Promise<string> {
 }
 
 /**
- * Capture screenshot on Windows by calling the exe directly.
- * Without deviceName the exe captures the primary display.
+ * Capture one display on Windows to a PNG file.
+ * Without deviceName the primary display is captured.
  */
 async function captureWindows(imgPath: string, deviceName?: string): Promise<void> {
-  const args = deviceName ? [imgPath, '/d', deviceName] : [imgPath];
-  const stdout = await runWindowsExe(args);
-  // The exe silently falls back to the primary display if the device name does not match
+  const stdout = await runScreenScript(
+    `if (-not [CoDriverScreen]::Capture('${escapePowerShell(imgPath)}', '${escapePowerShell(deviceName ?? '')}')) ` +
+    `{ Write-Output 'Unable to capture image' }`
+  );
+  // A display can disappear between listing and capturing
   if (stdout.includes('Unable to capture image')) {
     throw new Error(`Failed to capture display ${deviceName}`);
   }
 }
 
-/** Monitor as reported by `screenCapture.exe /list` (virtual desktop coordinates) */
+/** Monitor in virtual desktop coordinates (physical pixels) */
 interface WindowsMonitor {
   name: string;
   x: number;
@@ -102,7 +176,7 @@ interface WindowsMonitor {
  * List monitors on Windows. Output lines: `\\.\DISPLAY1;top;right;bottom;left;dpiScale`.
  */
 async function listWindowsMonitors(): Promise<WindowsMonitor[]> {
-  const stdout = await runWindowsExe(['/list']);
+  const stdout = await runScreenScript('Write-Output ([CoDriverScreen]::List())');
   return stdout
     .split(/\r?\n/)
     .map((line) => line.trim().split(';'))
@@ -141,7 +215,6 @@ export class ScreenCapture {
     let buffer: Buffer;
 
     if (process.platform === 'win32') {
-      // Direct exe call - bypasses bat path resolution issues
       let deviceName: string | undefined;
       if (windowTitle != null) {
         // Capture the monitor holding (most of) the window, then crop to the window

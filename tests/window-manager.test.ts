@@ -149,7 +149,7 @@ describe('WindowManager', () => {
         expect(mockExecFile).toHaveBeenCalledWith(
           'powershell',
           expect.arrayContaining(['-NoProfile', '-NonInteractive']),
-          expect.objectContaining({ timeout: 30000 }),
+          expect.objectContaining({ timeout: 30000, windowsHide: true }),
           expect.any(Function)
         );
       });
@@ -185,7 +185,7 @@ describe('WindowManager', () => {
         expect(mockExecFile).toHaveBeenCalledWith(
           'powershell',
           expect.arrayContaining(['-NoProfile']),
-          expect.any(Object),
+          expect.objectContaining({ windowsHide: true }),
           expect.any(Function)
         );
       });

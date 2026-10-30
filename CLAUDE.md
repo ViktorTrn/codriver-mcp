@@ -17,7 +17,7 @@ Claude Code (Mac/Windows)
   |
 CoDriver MCP Server (macOS / Windows)
   |
-  +-- ScreenCapture       - screenshot-desktop + sharp (cross-platform)
+  +-- ScreenCapture       - screenshot-desktop (macOS) | PowerShell+GDI (Windows), sharp
   +-- InputController     - Swift/CGEvent (macOS) | robotjs (Windows)
   +-- WindowManager       - Swift/CoreGraphics (macOS) | PowerShell+Win32 (Windows)
   +-- AccessibilityReader - JXA/osascript (macOS) | PowerShell+UIA (Windows)
@@ -31,7 +31,7 @@ CoDriver MCP Server (macOS / Windows)
 |-------|------------|
 | Runtime | Node.js 20 LTS, TypeScript 5.7+ |
 | MCP SDK | @modelcontextprotocol/sdk v1.26 |
-| Screenshots | screenshot-desktop + sharp |
+| Screenshots | screenshot-desktop (macOS) / PowerShell+GDI (Windows) + sharp |
 | Input Control | @jitsi/robotjs v0.6.21 |
 | Window Mgmt | AppleScript/osascript (macOS), platform-native |
 | Accessibility | Platform-native (Windows UIA, macOS AX) - Phase 2 |
@@ -46,7 +46,7 @@ src/
   index.ts                    # Entry point (stdio transport)
   server.ts                   # McpServer setup + tool registration (registerTool API)
   modules/                    # Core engine modules
-    screen-capture.ts         # Screenshot engine (screenshot-desktop + sharp)
+    screen-capture.ts         # Screenshot engine (screenshot-desktop / PowerShell+GDI + sharp)
     input-controller.ts       # Mouse + keyboard (@jitsi/robotjs)
     window-manager.ts         # Window enumeration + control (AppleScript on macOS)
     accessibility.ts          # UI Automation bridge (Phase 2)

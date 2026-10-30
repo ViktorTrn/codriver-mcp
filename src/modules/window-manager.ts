@@ -274,6 +274,7 @@ Write-Output ([WindowEnum]::ListWindows())
 
     try {
       const { stdout } = await execFileAsync('powershell', [...PS_FLAGS, PS_UTF8_OUTPUT + script], {
+        windowsHide: true,
         timeout: 30000,
       });
 
@@ -338,6 +339,7 @@ if ($proc) {
 
     try {
       const { stdout } = await execFileAsync('powershell', [...PS_FLAGS, PS_UTF8_OUTPUT + script], {
+        windowsHide: true,
         timeout: 10000,
       });
 

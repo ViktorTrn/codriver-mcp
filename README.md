@@ -28,7 +28,7 @@ CoDriver is an MCP server that gives Claude control over any desktop application
 | Platform | Status | Mouse/Keyboard | Window Mgmt | Accessibility | Screenshots | OCR |
 |----------|--------|---------------|-------------|---------------|-------------|-----|
 | **macOS** | Supported | Swift/CGEvent + robotjs | Swift/CoreGraphics | JXA/osascript | screenshot-desktop | tesseract.js |
-| **Windows** | Supported | robotjs | PowerShell + Win32 P/Invoke | PowerShell + UI Automation | screenshot-desktop | tesseract.js |
+| **Windows** | Supported | robotjs | PowerShell + Win32 P/Invoke | PowerShell + UI Automation | PowerShell + GDI | tesseract.js |
 | Linux | Planned | - | - | - | - | - |
 
 ## Quick Start
@@ -194,7 +194,7 @@ CoDriver MCP Server (Node.js/TypeScript)
   |     +-- desktop_displays     Monitor listing
   |
   +-- Modules
-        +-- ScreenCapture       screenshot-desktop + sharp (cross-platform)
+        +-- ScreenCapture       screenshot-desktop (macOS) | PowerShell + GDI (Windows), sharp
         +-- InputController     Swift/CGEvent (macOS) | robotjs (Windows)
         +-- WindowManager       Swift/CoreGraphics (macOS) | PowerShell+Win32 (Windows)
         +-- AccessibilityReader JXA/osascript (macOS) | PowerShell+UIA (Windows)
@@ -208,7 +208,7 @@ CoDriver MCP Server (Node.js/TypeScript)
 |-----------|-------|---------|
 | Runtime | Node.js 20 LTS, TypeScript 5.7+ strict | same |
 | MCP SDK | @modelcontextprotocol/sdk v1.26 | same |
-| Screenshots | screenshot-desktop + sharp | same |
+| Screenshots | screenshot-desktop + sharp | PowerShell + GDI (no helper exe, antivirus-safe) + sharp |
 | Mouse Input | Swift/CGEvent | @jitsi/robotjs |
 | Keyboard Input | @jitsi/robotjs | same |
 | Accessibility | JXA / osascript | PowerShell + UI Automation (System.Windows.Automation) |

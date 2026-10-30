@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Mock screenshot-desktop
 vi.mock('screenshot-desktop', () => {
@@ -36,12 +36,18 @@ describe('ScreenCapture', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // Use the mocked screenshot-desktop path; on Windows hosts the capture would otherwise be real
+    vi.stubGlobal('process', { ...process, platform: 'darwin' });
     // Reset chainable methods
     mockSharpInstance.extract.mockReturnThis();
     mockSharpInstance.resize.mockReturnThis();
     mockSharpInstance.png.mockReturnThis();
     mockSharpInstance.jpeg.mockReturnThis();
     capture = new ScreenCapture();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it('should capture a full desktop screenshot', async () => {
