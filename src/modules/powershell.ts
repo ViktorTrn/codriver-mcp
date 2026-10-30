@@ -12,7 +12,11 @@ export const PS_FLAGS = ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'B
  */
 export const PS_UTF8_OUTPUT = '[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false\n';
 
-/** Escape a string for use inside PowerShell single-quoted strings */
+/**
+ * Escape a string for use inside PowerShell single-quoted strings.
+ * PowerShell also accepts the typographic quotes U+2018..U+201B as single quotes,
+ * so a title like "Viktor’s" would otherwise end the literal and inject code.
+ */
 export function escapePowerShell(str: string): string {
-  return str.replace(/'/g, "''");
+  return str.replace(/['‘’‚‛]/g, (q) => q + q);
 }
